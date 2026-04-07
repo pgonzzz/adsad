@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { peticionesApi } from '../api';
-import Modal from '../components/Modal';
 import Badge from '../components/Badge';
+import Combobox from '../components/Combobox';
+import { PROVINCIAS } from '../data/municipios';
 
 function fmt(n) {
   if (!n) return '—';
@@ -17,6 +18,7 @@ export default function Peticiones() {
   const [search, setSearch] = useState('');
   const [filterEstado, setFilterEstado] = useState('');
   const [filterFinanciacion, setFilterFinanciacion] = useState('');
+  const [filterProvincia, setFilterProvincia] = useState('');
 
   const load = () => {
     setLoading(true);
@@ -31,12 +33,14 @@ export default function Peticiones() {
     const inversorNombre = [p.inversores?.nombre, p.inversores?.apellidos].filter(Boolean).join(' ').toLowerCase();
     const matchSearch =
       inversorNombre.includes(search.toLowerCase()) ||
-      (p.zona || '').toLowerCase().includes(search.toLowerCase());
+      (p.provincia || '').toLowerCase().includes(search.toLowerCase()) ||
+      (p.poblacion || '').toLowerCase().includes(search.toLowerCase());
     const matchEstado = filterEstado ? p.estado === filterEstado : true;
     const matchFinanciacion =
       filterFinanciacion === 'si' ? p.necesita_financiacion :
       filterFinanciacion === 'no' ? !p.necesita_financiacion : true;
-    return matchSearch && matchEstado && matchFinanciacion;
+    const matchProvincia = filterProvincia ? p.provincia === filterProvincia : true;
+    return matchSearch && matchEstado && matchFinanciacion && matchProvincia;
   });
 
   return (
@@ -75,13 +79,22 @@ export default function Peticiones() {
             <option value="si">Necesita financiación</option>
             <option value="no">Sin financiación</option>
           </select>
+          <div className="w-48">
+            <Combobox
+              options={PROVINCIAS}
+              value={filterProvincia}
+              onChange={setFilterProvincia}
+              placeholder="Filtrar por provincia..."
+            />
+          </div>
         </div>
 
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
               <th className="px-4 py-3">Inversor</th>
-              <th className="px-4 py-3">Zona</th>
+              <th className="px-4 py-3">Provincia</th>
+              <th className="px-4 py-3">Población</th>
               <th className="px-4 py-3">Tipos</th>
               <th className="px-4 py-3">Precio</th>
               <th className="px-4 py-3">Rent. mín.</th>
@@ -91,9 +104,9 @@ export default function Peticiones() {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={7} className="text-center py-10 text-gray-400">Cargando...</td></tr>
+              <tr><td colSpan={8} className="text-center py-10 text-gray-400">Cargando...</td></tr>
             ) : filtered.length === 0 ? (
-              <tr><td colSpan={7} className="text-center py-10 text-gray-400">No hay peticiones</td></tr>
+              <tr><td colSpan={8} className="text-center py-10 text-gray-400">No hay peticiones</td></tr>
             ) : filtered.map(p => (
               <tr key={p.id} className="border-b last:border-0 hover:bg-gray-50">
                 <td className="px-4 py-3 font-medium">
@@ -103,7 +116,8 @@ export default function Peticiones() {
                     </Link>
                   ) : '—'}
                 </td>
-                <td className="px-4 py-3 text-gray-600">{p.zona || '—'}</td>
+                <td className="px-4 py-3 text-gray-600">{p.provincia || '—'}</td>
+                <td className="px-4 py-3 text-gray-600">{p.poblacion || '—'}</td>
                 <td className="px-4 py-3">
                   <div className="flex flex-wrap gap-1">
                     {p.tipos_propiedad?.length > 0

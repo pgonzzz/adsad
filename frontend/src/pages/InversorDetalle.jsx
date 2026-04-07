@@ -4,6 +4,8 @@ import { ArrowLeft } from 'lucide-react';
 import { inversoresApi, peticionesApi, propiedadesApi } from '../api';
 import Modal from '../components/Modal';
 import Badge from '../components/Badge';
+import Combobox from '../components/Combobox';
+import { PROVINCIAS, MUNICIPIOS } from '../data/municipios';
 
 const TIPOS = ['piso', 'local', 'nave', 'edificio', 'solar', 'otro'];
 
@@ -27,7 +29,7 @@ function PipelineTag({ value }) {
 }
 
 const emptyPeticion = {
-  tipos_propiedad: [], zona: '', precio_min: '', precio_max: '',
+  tipos_propiedad: [], provincia: '', poblacion: '', precio_min: '', precio_max: '',
   rentabilidad_min: '', necesita_financiacion: false, estado: 'activa', notas: '',
 };
 
@@ -66,7 +68,8 @@ export default function InversorDetalle() {
     setEditing(p);
     setForm({
       tipos_propiedad: p.tipos_propiedad || [],
-      zona: p.zona || '',
+      provincia: p.provincia || '',
+      poblacion: p.poblacion || '',
       precio_min: p.precio_min || '',
       precio_max: p.precio_max || '',
       rentabilidad_min: p.rentabilidad_min || '',
@@ -225,7 +228,9 @@ export default function InversorDetalle() {
                       )}
                     </div>
                     <div className="flex flex-wrap gap-4 text-sm text-gray-600">
-                      {p.zona && <span><span className="text-gray-400">Zona:</span> {p.zona}</span>}
+                      {(p.provincia || p.poblacion) && (
+                        <span><span className="text-gray-400">Ubicación:</span> {[p.poblacion, p.provincia].filter(Boolean).join(', ')}</span>
+                      )}
                       {(p.precio_min || p.precio_max) && (
                         <span><span className="text-gray-400">Precio:</span> {fmt(p.precio_min)} – {fmt(p.precio_max)}</span>
                       )}
@@ -262,10 +267,26 @@ export default function InversorDetalle() {
               ))}
             </div>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Zona / Ubicación</label>
-            <input value={form.zona} onChange={set('zona')} placeholder="Ej: Madrid, Chamberí, Valencia..."
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Provincia</label>
+              <Combobox
+                options={PROVINCIAS}
+                value={form.provincia}
+                onChange={v => setForm(f => ({ ...f, provincia: v, poblacion: '' }))}
+                placeholder="Buscar provincia..."
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Población</label>
+              <Combobox
+                options={form.provincia ? (MUNICIPIOS[form.provincia] || []) : []}
+                value={form.poblacion}
+                onChange={v => setForm(f => ({ ...f, poblacion: v }))}
+                placeholder={form.provincia ? 'Buscar población...' : 'Selecciona provincia primero'}
+                disabled={!form.provincia}
+              />
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
