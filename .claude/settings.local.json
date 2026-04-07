@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//opt/homebrew/**)",
+      "Bash(/dev/null -name npm -type f)",
+      "Bash(/usr/local/lib/node_modules/npm/bin/npm install:*)",
+      "Read(//usr/local/bin/**)",
+      "Read(//Users/paulgonzalvezramires/.nvm/versions/**)",
+      "Bash(/usr/local/bin/node --version)",
+      "Bash(/usr/local/bin/npm --version)",
+      "Read(//usr/local/lib/node_modules/npm/bin/**)",
+      "Bash(/usr/local/bin/node /usr/local/lib/node_modules/npm/bin/npm-cli.js install)"
+    ]
+  }
+}
