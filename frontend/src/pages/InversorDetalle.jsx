@@ -113,8 +113,11 @@ export default function InversorDetalle() {
               {inversor.presupuesto && (
                 <span className="text-gray-600"><span className="text-gray-400">Presupuesto:</span> {fmt(inversor.presupuesto)}</span>
               )}
-              {inversor.valor_propiedad_buscada && (
-                <span className="text-gray-600"><span className="text-gray-400">Valor buscado:</span> {fmt(inversor.valor_propiedad_buscada)}</span>
+              {(inversor.valor_propiedad_min || inversor.valor_propiedad_max) && (
+                <span className="text-gray-600">
+                  <span className="text-gray-400">Valor buscado:</span>{' '}
+                  {fmt(inversor.valor_propiedad_min)} – {fmt(inversor.valor_propiedad_max)}
+                </span>
               )}
               {inversor.necesita_financiacion && (
                 <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full text-xs font-medium">Necesita financiación</span>

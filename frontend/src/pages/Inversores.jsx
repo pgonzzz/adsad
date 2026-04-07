@@ -5,7 +5,7 @@ import Modal from '../components/Modal';
 
 const empty = {
   nombre: '', apellidos: '', email: '', telefono: '', empresa: '',
-  presupuesto: '', valor_propiedad_buscada: '', necesita_financiacion: false, notas: '',
+  presupuesto: '', valor_propiedad_min: '', valor_propiedad_max: '', necesita_financiacion: false, notas: '',
 };
 
 function fmt(n) {
@@ -42,7 +42,8 @@ export default function Inversores() {
       telefono: inv.telefono || '',
       empresa: inv.empresa || '',
       presupuesto: inv.presupuesto || '',
-      valor_propiedad_buscada: inv.valor_propiedad_buscada || '',
+      valor_propiedad_min: inv.valor_propiedad_min || '',
+      valor_propiedad_max: inv.valor_propiedad_max || '',
       necesita_financiacion: inv.necesita_financiacion || false,
       notas: inv.notas || '',
     });
@@ -54,7 +55,8 @@ export default function Inversores() {
     const payload = {
       ...form,
       presupuesto: form.presupuesto ? Number(form.presupuesto) : null,
-      valor_propiedad_buscada: form.valor_propiedad_buscada ? Number(form.valor_propiedad_buscada) : null,
+      valor_propiedad_min: form.valor_propiedad_min ? Number(form.valor_propiedad_min) : null,
+      valor_propiedad_max: form.valor_propiedad_max ? Number(form.valor_propiedad_max) : null,
     };
     if (editing) await inversoresApi.update(editing.id, payload);
     else await inversoresApi.create(payload);
@@ -100,7 +102,7 @@ export default function Inversores() {
               <th className="px-4 py-3">Email</th>
               <th className="px-4 py-3">Teléfono</th>
               <th className="px-4 py-3">Presupuesto</th>
-              <th className="px-4 py-3">Valor propiedad</th>
+              <th className="px-4 py-3">Valor propiedad buscada</th>
               <th className="px-4 py-3">Financiación</th>
               <th className="px-4 py-3">Peticiones</th>
               <th className="px-4 py-3"></th>
@@ -120,7 +122,11 @@ export default function Inversores() {
                 <td className="px-4 py-3 text-gray-600">{inv.email || '—'}</td>
                 <td className="px-4 py-3 text-gray-600">{inv.telefono || '—'}</td>
                 <td className="px-4 py-3 text-gray-700 font-medium">{fmt(inv.presupuesto)}</td>
-                <td className="px-4 py-3 text-gray-600">{fmt(inv.valor_propiedad_buscada)}</td>
+                <td className="px-4 py-3 text-gray-600">
+                  {inv.valor_propiedad_min || inv.valor_propiedad_max
+                    ? <>{fmt(inv.valor_propiedad_min)} – {fmt(inv.valor_propiedad_max)}</>
+                    : '—'}
+                </td>
                 <td className="px-4 py-3">
                   {inv.necesita_financiacion
                     ? <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full text-xs font-medium">Sí</span>
@@ -175,18 +181,24 @@ export default function Inversores() {
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
 
-          {/* Presupuesto y Valor propiedad */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Presupuesto (€)</label>
-              <input type="number" value={form.presupuesto} onChange={set('presupuesto')}
-                placeholder="Ej: 500000"
+          {/* Presupuesto */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Presupuesto (€)</label>
+            <input type="number" value={form.presupuesto} onChange={set('presupuesto')}
+              placeholder="Ej: 500000"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          </div>
+
+          {/* Rango de valor de propiedad buscada */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Valor de propiedad buscada (€)</label>
+            <div className="flex items-center gap-2">
+              <input type="number" value={form.valor_propiedad_min} onChange={set('valor_propiedad_min')}
+                placeholder="Mínimo"
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Valor propiedad buscada (€)</label>
-              <input type="number" value={form.valor_propiedad_buscada} onChange={set('valor_propiedad_buscada')}
-                placeholder="Ej: 300000"
+              <span className="text-gray-400 font-medium shrink-0">–</span>
+              <input type="number" value={form.valor_propiedad_max} onChange={set('valor_propiedad_max')}
+                placeholder="Máximo"
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
           </div>
