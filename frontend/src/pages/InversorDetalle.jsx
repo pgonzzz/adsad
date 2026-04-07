@@ -1,21 +1,34 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
-import { inversoresApi, peticionesApi } from '../api';
+import { inversoresApi, peticionesApi, propiedadesApi } from '../api';
 import Modal from '../components/Modal';
 import Badge from '../components/Badge';
 
 const TIPOS = ['piso', 'local', 'nave', 'edificio', 'solar', 'otro'];
 
+const PIPELINE = [
+  { value: 'en_busca',     label: 'En busca de propiedad',    bg: 'bg-blue-100',   text: 'text-blue-700' },
+  { value: 'reservada',    label: 'Propiedad reservada',       bg: 'bg-purple-100', text: 'text-purple-700' },
+  { value: 'financiacion', label: 'Pendiente de financiación', bg: 'bg-amber-100',  text: 'text-amber-700' },
+  { value: 'tramites',     label: 'En trámites',               bg: 'bg-orange-100', text: 'text-orange-700' },
+  { value: 'comprado',     label: 'Comprado',                  bg: 'bg-green-100',  text: 'text-green-700' },
+  { value: 'pospuesto',    label: 'Pospuesto',                 bg: 'bg-gray-100',   text: 'text-gray-500' },
+  { value: 'descartado',   label: 'Descartado',                bg: 'bg-red-100',    text: 'text-red-700' },
+];
+
+function PipelineTag({ value }) {
+  const stage = PIPELINE.find(p => p.value === value) || PIPELINE[0];
+  return (
+    <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${stage.bg} ${stage.text}`}>
+      {stage.label}
+    </span>
+  );
+}
+
 const emptyPeticion = {
-  tipos_propiedad: [],
-  zona: '',
-  precio_min: '',
-  precio_max: '',
-  rentabilidad_min: '',
-  necesita_financiacion: false,
-  estado: 'activa',
-  notas: '',
+  tipos_propiedad: [], zona: '', precio_min: '', precio_max: '',
+  rentabilidad_min: '', necesita_financiacion: false, estado: 'activa', notas: '',
 };
 
 function fmt(n) {
@@ -26,16 +39,24 @@ function fmt(n) {
 export default function InversorDetalle() {
   const { id } = useParams();
   const [inversor, setInversor] = useState(null);
+  const [propiedades, setPropiedades] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyPeticion);
+  const [savingPropiedad, setSavingPropiedad] = useState(false);
+  const [selectedPropiedad, setSelectedPropiedad] = useState('');
 
   const load = () => {
     setLoading(true);
-    inversoresApi.getById(id)
-      .then(setInversor)
-      .finally(() => setLoading(false));
+    Promise.all([
+      inversoresApi.getById(id),
+      propiedadesApi.getAll(),
+    ]).then(([inv, props]) => {
+      setInversor(inv);
+      setPropiedades(props);
+      setSelectedPropiedad(inv.propiedad_id || '');
+    }).finally(() => setLoading(false));
   };
 
   useEffect(load, [id]);
@@ -86,10 +107,19 @@ export default function InversorDetalle() {
     load();
   };
 
+  const handleAsociarPropiedad = async () => {
+    setSavingPropiedad(true);
+    await inversoresApi.update(id, { propiedad_id: selectedPropiedad || null });
+    await load();
+    setSavingPropiedad(false);
+  };
+
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
 
   if (loading) return <p className="text-gray-400">Cargando...</p>;
   if (!inversor) return <p className="text-red-500">Inversor no encontrado</p>;
+
+  const propiedadAsociada = inversor.propiedad;
 
   return (
     <div>
@@ -100,16 +130,22 @@ export default function InversorDetalle() {
       {/* Cabecera */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 mb-6">
         <div className="flex items-start justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">
-              {[inversor.nombre, inversor.apellidos].filter(Boolean).join(' ')}
-            </h1>
+          <div className="flex-1">
+            <div className="flex items-center gap-3 flex-wrap">
+              <h1 className="text-2xl font-bold text-gray-900">
+                {[inversor.nombre, inversor.apellidos].filter(Boolean).join(' ')}
+              </h1>
+              <PipelineTag value={inversor.pipeline} />
+            </div>
             <div className="mt-2 flex flex-wrap gap-4 text-sm text-gray-600">
               {inversor.email && <span>{inversor.email}</span>}
               {inversor.telefono && <span>{inversor.telefono}</span>}
               {inversor.empresa && <span className="font-medium">{inversor.empresa}</span>}
             </div>
             <div className="mt-3 flex flex-wrap gap-4 text-sm">
+              {inversor.zona && (
+                <span className="text-gray-600"><span className="text-gray-400">Zona:</span> {inversor.zona}</span>
+              )}
               {inversor.presupuesto && (
                 <span className="text-gray-600"><span className="text-gray-400">Presupuesto:</span> {fmt(inversor.presupuesto)}</span>
               )}
@@ -125,6 +161,52 @@ export default function InversorDetalle() {
             </div>
             {inversor.notas && <p className="mt-3 text-sm text-gray-500 max-w-xl">{inversor.notas}</p>}
           </div>
+        </div>
+      </div>
+
+      {/* Propiedad asociada */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 mb-6">
+        <h2 className="font-semibold text-gray-900 mb-4">Propiedad asociada</h2>
+
+        {propiedadAsociada ? (
+          <div className="flex items-center justify-between p-4 bg-blue-50 border border-blue-200 rounded-lg mb-4">
+            <div>
+              <div className="font-medium text-gray-900">
+                {propiedadAsociada.tipo?.charAt(0).toUpperCase() + propiedadAsociada.tipo?.slice(1)} — {propiedadAsociada.zona}
+              </div>
+              <div className="text-sm text-gray-600 mt-1">
+                {fmt(propiedadAsociada.precio)}
+                {propiedadAsociada.rentabilidad_bruta && <span className="ml-3">Rent. bruta: {propiedadAsociada.rentabilidad_bruta}%</span>}
+              </div>
+              {propiedadAsociada.descripcion && (
+                <div className="text-xs text-gray-500 mt-1">{propiedadAsociada.descripcion}</div>
+              )}
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-400 mb-4">Sin propiedad asociada</p>
+        )}
+
+        <div className="flex items-center gap-3">
+          <select
+            value={selectedPropiedad}
+            onChange={e => setSelectedPropiedad(e.target.value)}
+            className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">— Sin propiedad asociada —</option>
+            {propiedades.map(p => (
+              <option key={p.id} value={p.id}>
+                {p.tipo?.charAt(0).toUpperCase() + p.tipo?.slice(1)} — {p.zona} — {fmt(p.precio)}
+              </option>
+            ))}
+          </select>
+          <button
+            onClick={handleAsociarPropiedad}
+            disabled={savingPropiedad}
+            className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 disabled:opacity-50"
+          >
+            {savingPropiedad ? 'Guardando...' : 'Guardar'}
+          </button>
         </div>
       </div>
 
