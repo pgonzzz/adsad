@@ -4,13 +4,13 @@ import { inversoresApi } from '../api';
 import Modal from '../components/Modal';
 
 const PIPELINE = [
-  { value: 'en_busca',     label: 'En busca de propiedad',     bg: 'bg-blue-100',   text: 'text-blue-700' },
-  { value: 'reservada',    label: 'Propiedad reservada',        bg: 'bg-purple-100', text: 'text-purple-700' },
-  { value: 'financiacion', label: 'Pendiente de financiación',  bg: 'bg-amber-100',  text: 'text-amber-700' },
-  { value: 'tramites',     label: 'En trámites',                bg: 'bg-orange-100', text: 'text-orange-700' },
-  { value: 'comprado',     label: 'Comprado',                   bg: 'bg-green-100',  text: 'text-green-700' },
-  { value: 'pospuesto',    label: 'Pospuesto',                  bg: 'bg-gray-100',   text: 'text-gray-500' },
-  { value: 'descartado',   label: 'Descartado',                 bg: 'bg-red-100',    text: 'text-red-700' },
+  { value: 'en_busca',     label: 'En busca de propiedad',    bg: 'bg-blue-100',   text: 'text-blue-700' },
+  { value: 'reservada',    label: 'Propiedad reservada',       bg: 'bg-purple-100', text: 'text-purple-700' },
+  { value: 'financiacion', label: 'Pendiente de financiación', bg: 'bg-amber-100',  text: 'text-amber-700' },
+  { value: 'tramites',     label: 'En trámites',               bg: 'bg-orange-100', text: 'text-orange-700' },
+  { value: 'comprado',     label: 'Comprado',                  bg: 'bg-green-100',  text: 'text-green-700' },
+  { value: 'pospuesto',    label: 'Pospuesto',                 bg: 'bg-gray-100',   text: 'text-gray-500' },
+  { value: 'descartado',   label: 'Descartado',                bg: 'bg-red-100',    text: 'text-red-700' },
 ];
 
 function PipelineTag({ value }) {
@@ -24,14 +24,8 @@ function PipelineTag({ value }) {
 
 const empty = {
   nombre: '', apellidos: '', email: '', telefono: '', empresa: '',
-  zona: '', presupuesto: '', valor_propiedad_min: '', valor_propiedad_max: '',
   necesita_financiacion: false, pipeline: 'en_busca', notas: '',
 };
-
-function fmt(n) {
-  if (!n) return '—';
-  return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(n);
-}
 
 const fullName = (inv) => [inv.nombre, inv.apellidos].filter(Boolean).join(' ');
 
@@ -62,10 +56,6 @@ export default function Inversores() {
       email: inv.email || '',
       telefono: inv.telefono || '',
       empresa: inv.empresa || '',
-      zona: inv.zona || '',
-      presupuesto: inv.presupuesto || '',
-      valor_propiedad_min: inv.valor_propiedad_min || '',
-      valor_propiedad_max: inv.valor_propiedad_max || '',
       necesita_financiacion: inv.necesita_financiacion || false,
       pipeline: inv.pipeline || 'en_busca',
       notas: inv.notas || '',
@@ -75,14 +65,8 @@ export default function Inversores() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const payload = {
-      ...form,
-      presupuesto: form.presupuesto ? Number(form.presupuesto) : null,
-      valor_propiedad_min: form.valor_propiedad_min ? Number(form.valor_propiedad_min) : null,
-      valor_propiedad_max: form.valor_propiedad_max ? Number(form.valor_propiedad_max) : null,
-    };
-    if (editing) await inversoresApi.update(editing.id, payload);
-    else await inversoresApi.create(payload);
+    if (editing) await inversoresApi.update(editing.id, form);
+    else await inversoresApi.create(form);
     setModal(false);
     load();
   };
@@ -99,8 +83,7 @@ export default function Inversores() {
     const matchSearch =
       fullName(i).toLowerCase().includes(search.toLowerCase()) ||
       (i.email || '').toLowerCase().includes(search.toLowerCase()) ||
-      (i.empresa || '').toLowerCase().includes(search.toLowerCase()) ||
-      (i.zona || '').toLowerCase().includes(search.toLowerCase());
+      (i.empresa || '').toLowerCase().includes(search.toLowerCase());
     const matchPipeline = filterPipeline ? i.pipeline === filterPipeline : true;
     return matchSearch && matchPipeline;
   });
@@ -115,10 +98,9 @@ export default function Inversores() {
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
-        {/* Filtros */}
         <div className="p-4 border-b flex flex-wrap gap-3">
           <input
-            type="text" placeholder="Buscar por nombre, email, empresa o zona..."
+            type="text" placeholder="Buscar por nombre, email o empresa..."
             value={search} onChange={e => setSearch(e.target.value)}
             className="flex-1 min-w-[200px] px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
@@ -135,39 +117,32 @@ export default function Inversores() {
           <thead>
             <tr className="border-b bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
               <th className="px-4 py-3">Nombre</th>
-              <th className="px-4 py-3">Contacto</th>
-              <th className="px-4 py-3">Zona</th>
-              <th className="px-4 py-3">Presupuesto</th>
-              <th className="px-4 py-3">Valor buscado</th>
+              <th className="px-4 py-3">Email</th>
+              <th className="px-4 py-3">Teléfono</th>
               <th className="px-4 py-3">Pipeline</th>
+              <th className="px-4 py-3">Financiación</th>
               <th className="px-4 py-3">Peticiones</th>
               <th className="px-4 py-3"></th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={8} className="text-center py-10 text-gray-400">Cargando...</td></tr>
+              <tr><td colSpan={7} className="text-center py-10 text-gray-400">Cargando...</td></tr>
             ) : filtered.length === 0 ? (
-              <tr><td colSpan={8} className="text-center py-10 text-gray-400">No hay inversores</td></tr>
+              <tr><td colSpan={7} className="text-center py-10 text-gray-400">No hay inversores</td></tr>
             ) : filtered.map(inv => (
               <tr key={inv.id} className="border-b last:border-0 hover:bg-gray-50">
                 <td className="px-4 py-3 font-medium">
                   <Link to={`/inversores/${inv.id}`} className="text-blue-600 hover:underline">{fullName(inv)}</Link>
                   {inv.empresa && <div className="text-xs text-gray-400">{inv.empresa}</div>}
                 </td>
-                <td className="px-4 py-3 text-gray-600">
-                  <div>{inv.email || '—'}</div>
-                  {inv.telefono && <div className="text-xs text-gray-400">{inv.telefono}</div>}
-                </td>
-                <td className="px-4 py-3 text-gray-600">{inv.zona || '—'}</td>
-                <td className="px-4 py-3 text-gray-700 font-medium">{fmt(inv.presupuesto)}</td>
-                <td className="px-4 py-3 text-gray-600">
-                  {inv.valor_propiedad_min || inv.valor_propiedad_max
-                    ? <>{fmt(inv.valor_propiedad_min)} – {fmt(inv.valor_propiedad_max)}</>
-                    : '—'}
-                </td>
+                <td className="px-4 py-3 text-gray-600">{inv.email || '—'}</td>
+                <td className="px-4 py-3 text-gray-600">{inv.telefono || '—'}</td>
+                <td className="px-4 py-3"><PipelineTag value={inv.pipeline} /></td>
                 <td className="px-4 py-3">
-                  <PipelineTag value={inv.pipeline} />
+                  {inv.necesita_financiacion
+                    ? <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full text-xs font-medium">Sí</span>
+                    : <span className="text-gray-400 text-xs">No</span>}
                 </td>
                 <td className="px-4 py-3 text-gray-600">{inv.peticiones?.length ?? 0}</td>
                 <td className="px-4 py-3 text-right space-x-3">
@@ -183,7 +158,6 @@ export default function Inversores() {
       <Modal isOpen={modal} onClose={() => setModal(false)} title={editing ? 'Editar inversor' : 'Nuevo inversor'} size="lg">
         <form onSubmit={handleSubmit} className="space-y-4">
 
-          {/* Nombre y Apellidos */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Nombre *</label>
@@ -197,7 +171,6 @@ export default function Inversores() {
             </div>
           </div>
 
-          {/* Email y Teléfono */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
@@ -211,21 +184,12 @@ export default function Inversores() {
             </div>
           </div>
 
-          {/* Empresa y Zona */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Empresa</label>
-              <input value={form.empresa} onChange={set('empresa')}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Zona de búsqueda</label>
-              <input value={form.zona} onChange={set('zona')} placeholder="Ej: Madrid, Valencia..."
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Empresa</label>
+            <input value={form.empresa} onChange={set('empresa')}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
           </div>
 
-          {/* Pipeline */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Etapa del pipeline</label>
             <select value={form.pipeline} onChange={set('pipeline')}
@@ -234,29 +198,6 @@ export default function Inversores() {
             </select>
           </div>
 
-          {/* Presupuesto */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Presupuesto (€)</label>
-            <input type="number" value={form.presupuesto} onChange={set('presupuesto')}
-              placeholder="Ej: 500000"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          </div>
-
-          {/* Rango de valor de propiedad buscada */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Valor de propiedad buscada (€)</label>
-            <div className="flex items-center gap-2">
-              <input type="number" value={form.valor_propiedad_min} onChange={set('valor_propiedad_min')}
-                placeholder="Mínimo"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              <span className="text-gray-400 font-medium shrink-0">–</span>
-              <input type="number" value={form.valor_propiedad_max} onChange={set('valor_propiedad_max')}
-                placeholder="Máximo"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            </div>
-          </div>
-
-          {/* Necesita financiación */}
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" checked={form.necesita_financiacion}
               onChange={e => setForm(f => ({ ...f, necesita_financiacion: e.target.checked }))}
@@ -264,7 +205,6 @@ export default function Inversores() {
             <span className="text-sm text-gray-700">¿Necesita financiación?</span>
           </label>
 
-          {/* Notas */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Notas</label>
             <textarea rows={3} value={form.notas} onChange={set('notas')}

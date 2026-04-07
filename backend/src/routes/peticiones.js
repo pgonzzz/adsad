@@ -6,7 +6,7 @@ const router = express.Router();
 router.get('/', async (req, res) => {
   let query = supabase
     .from('peticiones')
-    .select('*, inversores(id, nombre)')
+    .select('*, inversores(id, nombre, apellidos)')
     .order('created_at', { ascending: false });
 
   if (req.query.inversor_id) {
@@ -21,7 +21,7 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   const { data, error } = await supabase
     .from('peticiones')
-    .select('*, inversores(id, nombre)')
+    .select('*, inversores(id, nombre, apellidos)')
     .eq('id', req.params.id)
     .single();
   if (error) return res.status(500).json({ error: error.message });

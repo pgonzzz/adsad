@@ -6,6 +6,7 @@ import {
   Briefcase,
   GitMerge,
   TrendingUp,
+  ClipboardList,
   LogOut,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
@@ -13,6 +14,7 @@ import { supabase } from '../lib/supabase';
 const nav = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/inversores', label: 'Inversores', icon: Users },
+  { to: '/peticiones', label: 'Peticiones', icon: ClipboardList },
   { to: '/propiedades', label: 'Propiedades', icon: Building2 },
   { to: '/proveedores', label: 'Proveedores', icon: Briefcase },
   { to: '/matches', label: 'Matches', icon: GitMerge },

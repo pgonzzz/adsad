@@ -9,6 +9,7 @@ import Proveedores from './pages/Proveedores';
 import Propiedades from './pages/Propiedades';
 import Matches from './pages/Matches';
 import Operaciones from './pages/Operaciones';
+import Peticiones from './pages/Peticiones';
 
 export default function App() {
   return (
@@ -27,6 +28,7 @@ export default function App() {
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="inversores" element={<Inversores />} />
           <Route path="inversores/:id" element={<InversorDetalle />} />
+          <Route path="peticiones" element={<Peticiones />} />
           <Route path="proveedores" element={<Proveedores />} />
           <Route path="propiedades" element={<Propiedades />} />
           <Route path="matches" element={<Matches />} />

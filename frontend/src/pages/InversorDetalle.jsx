@@ -142,19 +142,7 @@ export default function InversorDetalle() {
               {inversor.telefono && <span>{inversor.telefono}</span>}
               {inversor.empresa && <span className="font-medium">{inversor.empresa}</span>}
             </div>
-            <div className="mt-3 flex flex-wrap gap-4 text-sm">
-              {inversor.zona && (
-                <span className="text-gray-600"><span className="text-gray-400">Zona:</span> {inversor.zona}</span>
-              )}
-              {inversor.presupuesto && (
-                <span className="text-gray-600"><span className="text-gray-400">Presupuesto:</span> {fmt(inversor.presupuesto)}</span>
-              )}
-              {(inversor.valor_propiedad_min || inversor.valor_propiedad_max) && (
-                <span className="text-gray-600">
-                  <span className="text-gray-400">Valor buscado:</span>{' '}
-                  {fmt(inversor.valor_propiedad_min)} – {fmt(inversor.valor_propiedad_max)}
-                </span>
-              )}
+            <div className="mt-3 flex flex-wrap gap-3 text-sm">
               {inversor.necesita_financiacion && (
                 <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full text-xs font-medium">Necesita financiación</span>
               )}
