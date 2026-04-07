@@ -4,8 +4,8 @@ import { ArrowLeft } from 'lucide-react';
 import { inversoresApi, peticionesApi, propiedadesApi } from '../api';
 import Modal from '../components/Modal';
 import Badge from '../components/Badge';
-import Combobox from '../components/Combobox';
-import { PROVINCIAS, MUNICIPIOS } from '../data/municipios';
+import Combobox, { ComboboxMunicipios } from '../components/Combobox';
+import { PROVINCIAS } from '../data/municipios';
 
 const TIPOS = ['piso', 'local', 'nave', 'edificio', 'solar', 'otro'];
 
@@ -279,12 +279,11 @@ export default function InversorDetalle() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Población</label>
-              <Combobox
-                options={form.provincia ? (MUNICIPIOS[form.provincia] || []) : []}
+              <ComboboxMunicipios
+                provincia={form.provincia}
                 value={form.poblacion}
                 onChange={v => setForm(f => ({ ...f, poblacion: v }))}
-                placeholder={form.provincia ? 'Buscar población...' : 'Selecciona provincia primero'}
-                disabled={!form.provincia}
+                placeholder="Escribe para buscar..."
               />
             </div>
           </div>
