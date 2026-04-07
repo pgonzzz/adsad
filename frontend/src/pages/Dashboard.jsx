@@ -43,7 +43,7 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 mb-8">
         <StatCard label="Inversores" value={stats?.inversores} icon={Users} color="bg-blue-500" to="/inversores" />
-        <StatCard label="Peticiones activas" value={stats?.peticionesActivas} icon={TrendingUp} color="bg-purple-500" to="/inversores" />
+        <StatCard label="Peticiones activas" value={stats?.peticionesActivas} icon={TrendingUp} color="bg-purple-500" to="/peticiones" />
         <StatCard label="Propiedades disponibles" value={stats?.propDisponibles} icon={Building2} color="bg-indigo-500" to="/propiedades" />
         <StatCard label="Matches nuevos" value={stats?.matchesNuevos} icon={GitMerge} color="bg-orange-500" to="/matches" />
         <StatCard label="Operaciones en curso" value={stats?.operacionesEnCurso} icon={Briefcase} color="bg-green-500" to="/operaciones" />
