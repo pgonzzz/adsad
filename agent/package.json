@@ -1,0 +1,16 @@
+{
+  "name": "captacion-agent",
+  "version": "1.0.0",
+  "description": "Captacion agent - scrapes Idealista and sends WhatsApp",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "puppeteer": "^21.0.0",
+    "whatsapp-web.js": "^1.23.0",
+    "qrcode-terminal": "^0.12.0",
+    "axios": "^1.6.0",
+    "qrcode": "^1.5.3"
+  }
+}

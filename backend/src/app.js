@@ -10,6 +10,7 @@ import propiedadesRouter from './routes/propiedades.js';
 import matchesRouter from './routes/matches.js';
 import operacionesRouter from './routes/operaciones.js';
 import dashboardRouter from './routes/dashboard.js';
+import captacionRouter from './routes/captacion.js';
 
 dotenv.config();
 
@@ -42,6 +43,8 @@ app.use('/api/propiedades', authMiddleware, propiedadesRouter);
 app.use('/api/matches', authMiddleware, matchesRouter);
 app.use('/api/operaciones', authMiddleware, operacionesRouter);
 app.use('/api/dashboard', authMiddleware, dashboardRouter);
+// Captación: las rutas del agente no llevan authMiddleware (usan AGENT_KEY propia)
+app.use('/api/captacion', captacionRouter);
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`CRM Pisalia API corriendo en puerto ${PORT}`));

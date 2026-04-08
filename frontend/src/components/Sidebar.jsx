@@ -8,6 +8,7 @@ import {
   TrendingUp,
   ClipboardList,
   LogOut,
+  Search,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
@@ -16,6 +17,7 @@ const nav = [
   { to: '/inversores', label: 'Inversores', icon: Users },
   { to: '/peticiones', label: 'Peticiones', icon: ClipboardList },
   { to: '/propiedades', label: 'Propiedades', icon: Building2 },
+  { to: '/captacion', label: 'Captación', icon: Search },
   { to: '/proveedores', label: 'Proveedores', icon: Briefcase },
   { to: '/matches', label: 'Matches', icon: GitMerge },
   { to: '/operaciones', label: 'Operaciones', icon: TrendingUp },

@@ -10,6 +10,7 @@ import Propiedades from './pages/Propiedades';
 import Matches from './pages/Matches';
 import Operaciones from './pages/Operaciones';
 import Peticiones from './pages/Peticiones';
+import Captacion from './pages/Captacion';
 
 export default function App() {
   return (
@@ -33,6 +34,7 @@ export default function App() {
           <Route path="propiedades" element={<Propiedades />} />
           <Route path="matches" element={<Matches />} />
           <Route path="operaciones" element={<Operaciones />} />
+          <Route path="captacion" element={<Captacion />} />
         </Route>
       </Routes>
     </BrowserRouter>

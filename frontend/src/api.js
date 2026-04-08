@@ -65,3 +65,16 @@ export const operacionesApi = {
 export const dashboardApi = {
   getStats: () => get('/dashboard/stats'),
 };
+
+export const captacionApi = {
+  getCampanas: () => get('/captacion/campanas'),
+  createCampana: (data) => post('/captacion/campanas', data),
+  getCampana: (id) => get(`/captacion/campanas/${id}`),
+  updateCampana: (id, data) => put(`/captacion/campanas/${id}`, data),
+  deleteCampana: (id) => del(`/captacion/campanas/${id}`),
+  getLeads: (params) => get('/captacion/leads', params),
+  updateLead: (id, data) => put(`/captacion/leads/${id}`, data),
+  deleteLead: (id) => del(`/captacion/leads/${id}`),
+  getAgentStatus: () => get('/captacion/agent/status'),
+  createTarea: (tarea) => post('/captacion/tareas', tarea),
+};
