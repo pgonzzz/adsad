@@ -193,18 +193,18 @@ export default function PropiedadDetalle() {
     const texto = nuevoComentario.trim();
     if (!texto) return;
     setSavingComentario(true);
-    const comentarios = [...(propiedad.comentarios || [])];
-    comentarios.push({
+    const nueva = {
       id: Date.now().toString(),
       texto,
       usuario: getUserName(),
       email: currentUser?.email || '',
       created_at: new Date().toISOString(),
-    });
+    };
+    const comentarios = [...(propiedad.comentarios || []), nueva];
     await propiedadesApi.update(id, { comentarios });
+    setPropiedad(p => ({ ...p, comentarios }));
     setNuevoComentario('');
     setSavingComentario(false);
-    load();
   };
 
   const handleKeyDown = (e) => {
@@ -224,9 +224,9 @@ export default function PropiedadDetalle() {
         : c
     );
     await propiedadesApi.update(id, { comentarios });
+    setPropiedad(p => ({ ...p, comentarios }));
     setEditingComentario(null);
     setSavingEdit(false);
-    load();
   };
 
   const handleCancelEdit = () => setEditingComentario(null);
@@ -235,8 +235,8 @@ export default function PropiedadDetalle() {
     askConfirm('Eliminar nota', '¿Seguro que quieres eliminar esta nota?', async () => {
       const comentarios = (propiedad.comentarios || []).filter(c => c.id !== cId);
       await propiedadesApi.update(id, { comentarios });
+      setPropiedad(p => ({ ...p, comentarios }));
       setConfirm(null);
-      load();
     });
   };
 
