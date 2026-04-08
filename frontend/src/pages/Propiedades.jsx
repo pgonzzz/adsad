@@ -3,13 +3,15 @@ import { propiedadesApi, proveedoresApi } from '../api';
 import Modal from '../components/Modal';
 import Badge from '../components/Badge';
 import { supabase } from '../lib/supabase';
-import { ImagePlus, X, Loader2 } from 'lucide-react';
+import { ImagePlus, X, Loader2, SlidersHorizontal, ChevronDown } from 'lucide-react';
+import Combobox, { ComboboxMunicipios } from '../components/Combobox';
+import { PROVINCIAS } from '../data/municipios';
 
 const TIPOS = ['piso', 'local', 'nave', 'edificio', 'solar', 'otro'];
-const ESTADOS = ['disponible', 'en_negociacion', 'vendida'];
+const ESTADOS = ['disponible', 'reservada', 'en_negociacion', 'vendida'];
 
 const empty = {
-  tipo: 'piso', zona: '', precio: '', rentabilidad_bruta: '', rentabilidad_neta: '',
+  tipo: 'piso', provincia: '', poblacion: '', precio: '', rentabilidad_bruta: '', rentabilidad_neta: '',
   acepta_financiacion: false, descripcion: '', estado: 'disponible', proveedor_id: '', notas: '',
 };
 
@@ -22,28 +24,37 @@ export default function Propiedades() {
   const [propiedades, setPropiedades] = useState([]);
   const [proveedores, setProveedores] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filtroEstado, setFiltroEstado] = useState('');
-  const [filtroTipo, setFiltroTipo] = useState('');
-  const [search, setSearch] = useState('');
   const [modal, setModal] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(empty);
   const [fotos, setFotos] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [lightbox, setLightbox] = useState(null);
+  const [showFilters, setShowFilters] = useState(false);
   const fileRef = useRef();
+
+  // Filters
+  const [fProvincia, setFProvincia] = useState('');
+  const [fPoblacion, setFPoblacion] = useState('');
+  const [fEstado, setFEstado] = useState('');
+  const [fTipo, setFTipo] = useState('');
+  const [fPrecioMin, setFPrecioMin] = useState('');
+  const [fPrecioMax, setFPrecioMax] = useState('');
+  const [fRentMin, setFRentMin] = useState('');
+  const [fRentMax, setFRentMax] = useState('');
+  const [fFinanciacion, setFFinanciacion] = useState('');
+  const [search, setSearch] = useState('');
+
+  const activeFilters = [fProvincia, fPoblacion, fEstado, fTipo, fPrecioMin, fPrecioMax, fRentMin, fRentMax, fFinanciacion].filter(Boolean).length;
 
   const loadPropiedades = () => {
     setLoading(true);
-    const params = {};
-    if (filtroEstado) params.estado = filtroEstado;
-    if (filtroTipo) params.tipo = filtroTipo;
-    propiedadesApi.getAll(params)
+    propiedadesApi.getAll()
       .then(setPropiedades)
       .finally(() => setLoading(false));
   };
 
-  useEffect(loadPropiedades, [filtroEstado, filtroTipo]);
+  useEffect(loadPropiedades, []);
   useEffect(() => { proveedoresApi.getAll().then(setProveedores); }, []);
 
   const openCreate = () => {
@@ -56,8 +67,9 @@ export default function Propiedades() {
   const openEdit = (p) => {
     setEditing(p);
     setForm({
-      tipo: p.tipo, zona: p.zona || '', precio: p.precio || '',
-      rentabilidad_bruta: p.rentabilidad_bruta || '', rentabilidad_neta: p.rentabilidad_neta || '',
+      tipo: p.tipo, provincia: p.provincia || '', poblacion: p.poblacion || '',
+      precio: p.precio || '', rentabilidad_bruta: p.rentabilidad_bruta || '',
+      rentabilidad_neta: p.rentabilidad_neta || '',
       acepta_financiacion: p.acepta_financiacion || false, descripcion: p.descripcion || '',
       estado: p.estado, proveedor_id: p.proveedor_id || '', notas: p.notas || '',
     });
@@ -114,11 +126,31 @@ export default function Propiedades() {
 
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
 
-  const filtered = propiedades.filter(p =>
-    (p.zona || '').toLowerCase().includes(search.toLowerCase()) ||
-    (p.descripcion || '').toLowerCase().includes(search.toLowerCase()) ||
-    (p.proveedores?.nombre || '').toLowerCase().includes(search.toLowerCase())
-  );
+  const clearFilters = () => {
+    setFProvincia(''); setFPoblacion(''); setFEstado(''); setFTipo('');
+    setFPrecioMin(''); setFPrecioMax(''); setFRentMin(''); setFRentMax('');
+    setFFinanciacion(''); setSearch('');
+  };
+
+  const filtered = propiedades.filter(p => {
+    if (search && !(
+      (p.provincia || '').toLowerCase().includes(search.toLowerCase()) ||
+      (p.poblacion || '').toLowerCase().includes(search.toLowerCase()) ||
+      (p.descripcion || '').toLowerCase().includes(search.toLowerCase()) ||
+      (p.proveedores?.nombre || '').toLowerCase().includes(search.toLowerCase())
+    )) return false;
+    if (fProvincia && p.provincia !== fProvincia) return false;
+    if (fPoblacion && !(p.poblacion || '').toLowerCase().includes(fPoblacion.toLowerCase())) return false;
+    if (fEstado && p.estado !== fEstado) return false;
+    if (fTipo && p.tipo !== fTipo) return false;
+    if (fPrecioMin && (p.precio || 0) < Number(fPrecioMin)) return false;
+    if (fPrecioMax && (p.precio || 0) > Number(fPrecioMax)) return false;
+    if (fRentMin && (p.rentabilidad_bruta || 0) < Number(fRentMin)) return false;
+    if (fRentMax && (p.rentabilidad_bruta || 0) > Number(fRentMax)) return false;
+    if (fFinanciacion === 'si' && !p.acepta_financiacion) return false;
+    if (fFinanciacion === 'no' && p.acepta_financiacion) return false;
+    return true;
+  });
 
   return (
     <div>
@@ -130,32 +162,97 @@ export default function Propiedades() {
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
-        <div className="p-4 border-b flex flex-wrap gap-3">
-          <input type="text" placeholder="Buscar zona, descripción..." value={search} onChange={e => setSearch(e.target.value)}
+        {/* Search + filter toggle */}
+        <div className="p-4 border-b flex flex-wrap gap-3 items-center">
+          <input type="text" placeholder="Buscar provincia, población, descripción..." value={search} onChange={e => setSearch(e.target.value)}
             className="w-full max-w-xs px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-          <select value={filtroEstado} onChange={e => setFiltroEstado(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-            <option value="">Todos los estados</option>
-            {ESTADOS.map(e => <option key={e} value={e}>{e.replace('_', ' ')}</option>)}
-          </select>
-          <select value={filtroTipo} onChange={e => setFiltroTipo(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-            <option value="">Todos los tipos</option>
-            {TIPOS.map(t => <option key={t} value={t}>{t}</option>)}
-          </select>
+          <button
+            onClick={() => setShowFilters(v => !v)}
+            className={`flex items-center gap-2 px-3 py-2 border rounded-lg text-sm transition-colors ${showFilters || activeFilters > 0 ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-300 text-gray-600 hover:bg-gray-50'}`}
+          >
+            <SlidersHorizontal size={14} />
+            Filtros
+            {activeFilters > 0 && (
+              <span className="bg-blue-600 text-white text-xs rounded-full px-1.5 py-0.5 leading-none">{activeFilters}</span>
+            )}
+            <ChevronDown size={14} className={`transition-transform ${showFilters ? 'rotate-180' : ''}`} />
+          </button>
+          {activeFilters > 0 && (
+            <button onClick={clearFilters} className="text-sm text-gray-400 hover:text-gray-600">Limpiar filtros</button>
+          )}
         </div>
+
+        {/* Filter panel */}
+        {showFilters && (
+          <div className="p-4 border-b bg-gray-50 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Provincia</label>
+              <Combobox options={PROVINCIAS} value={fProvincia} onChange={v => { setFProvincia(v); setFPoblacion(''); }} placeholder="Todas" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Población</label>
+              <ComboboxMunicipios provincia={fProvincia} value={fPoblacion} onChange={setFPoblacion} placeholder="Todas" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Tipo</label>
+              <select value={fTipo} onChange={e => setFTipo(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="">Todos</option>
+                {TIPOS.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Estado</label>
+              <select value={fEstado} onChange={e => setFEstado(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="">Todos</option>
+                {ESTADOS.map(e => <option key={e} value={e}>{e.replace('_', ' ')}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Precio mín (€)</label>
+              <input type="number" value={fPrecioMin} onChange={e => setFPrecioMin(e.target.value)} placeholder="0"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Precio máx (€)</label>
+              <input type="number" value={fPrecioMax} onChange={e => setFPrecioMax(e.target.value)} placeholder="Sin límite"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Rent. bruta mín (%)</label>
+              <input type="number" step="0.1" value={fRentMin} onChange={e => setFRentMin(e.target.value)} placeholder="0"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Rent. bruta máx (%)</label>
+              <input type="number" step="0.1" value={fRentMax} onChange={e => setFRentMax(e.target.value)} placeholder="Sin límite"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-500 mb-1">Acepta financiación</label>
+              <select value={fFinanciacion} onChange={e => setFFinanciacion(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <option value="">Indiferente</option>
+                <option value="si">Sí</option>
+                <option value="no">No</option>
+              </select>
+            </div>
+          </div>
+        )}
+
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
                 <th className="px-4 py-3">Foto</th>
                 <th className="px-4 py-3">Tipo</th>
-                <th className="px-4 py-3">Zona</th>
+                <th className="px-4 py-3">Estado</th>
+                <th className="px-4 py-3">Provincia / Población</th>
                 <th className="px-4 py-3">Precio</th>
                 <th className="px-4 py-3">Rent. bruta</th>
                 <th className="px-4 py-3">Financiación</th>
                 <th className="px-4 py-3">Proveedor</th>
-                <th className="px-4 py-3">Estado</th>
                 <th className="px-4 py-3"></th>
               </tr>
             </thead>
@@ -181,7 +278,12 @@ export default function Propiedades() {
                     )}
                   </td>
                   <td className="px-4 py-3"><span className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-xs font-medium">{p.tipo}</span></td>
-                  <td className="px-4 py-3 text-gray-900">{p.zona || '—'}</td>
+                  <td className="px-4 py-3"><Badge value={p.estado} /></td>
+                  <td className="px-4 py-3 text-gray-900">
+                    {p.provincia || p.poblacion ? (
+                      <span>{p.provincia || ''}{p.provincia && p.poblacion ? ' / ' : ''}{p.poblacion || ''}</span>
+                    ) : '—'}
+                  </td>
                   <td className="px-4 py-3 font-medium text-gray-900">{fmt(p.precio)}</td>
                   <td className="px-4 py-3 text-gray-600">{p.rentabilidad_bruta ? `${p.rentabilidad_bruta}%` : '—'}</td>
                   <td className="px-4 py-3">{p.acepta_financiacion ? '✓' : '—'}</td>
@@ -190,7 +292,6 @@ export default function Propiedades() {
                       <span>{p.proveedores.nombre} <Badge value={p.proveedores.tipo} /></span>
                     ) : '—'}
                   </td>
-                  <td className="px-4 py-3"><Badge value={p.estado} /></td>
                   <td className="px-4 py-3 text-right space-x-3">
                     <button onClick={() => openEdit(p)} className="text-gray-400 hover:text-gray-700">Editar</button>
                     <button onClick={() => handleDelete(p.id)} className="text-red-400 hover:text-red-600">Eliminar</button>
@@ -233,10 +334,24 @@ export default function Propiedades() {
               </select>
             </div>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Zona</label>
-            <input value={form.zona} onChange={set('zona')} placeholder="Ej: Madrid Centro, Málaga..."
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Provincia</label>
+              <Combobox
+                options={PROVINCIAS}
+                value={form.provincia}
+                onChange={v => setForm(f => ({ ...f, provincia: v, poblacion: '' }))}
+                placeholder="Selecciona provincia"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Población</label>
+              <ComboboxMunicipios
+                provincia={form.provincia}
+                value={form.poblacion}
+                onChange={v => setForm(f => ({ ...f, poblacion: v }))}
+              />
+            </div>
           </div>
           <div className="grid grid-cols-3 gap-3">
             <div>
