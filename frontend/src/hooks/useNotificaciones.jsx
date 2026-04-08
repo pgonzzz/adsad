@@ -53,7 +53,7 @@ export function useNotificaciones() {
           setNotifs(prev => {
             const id = `lead-${l.id}`;
             if (prev.find(n => n.id === id)) return prev; // ya existe
-            return [{
+            const nueva = {
               id,
               tipo: 'respuesta_wa',
               titulo: 'Lead ha respondido',
@@ -61,7 +61,8 @@ export function useNotificaciones() {
               subtexto: [l.tipo, l.poblacion].filter(Boolean).join(' · '),
               ts: l.ultimo_contacto || new Date().toISOString(),
               link: '/captacion',
-            }, ...prev]);
+            };
+            return [nueva].concat(prev);
           });
         }
       )

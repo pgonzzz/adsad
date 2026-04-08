@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Bell, MessageSquare, Check } from 'lucide-react';
-import { useNotificaciones } from '../hooks/useNotificaciones';
+import { useNotificaciones } from '../hooks/useNotificaciones.jsx';
 
 function timeAgo(ts) {
   if (!ts) return '';
