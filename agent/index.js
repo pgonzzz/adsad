@@ -249,14 +249,21 @@ async function main() {
   console.log('[WA] Iniciando cliente WhatsApp...');
   initWhatsApp(
     (qrBase64) => {
-      // Guardar QR para incluirlo en el próximo heartbeat
       currentQRBase64 = qrBase64;
       console.log('[WA] QR generado y enviado al CRM.');
     },
     () => {
-      // WhatsApp listo
       currentQRBase64 = null;
       console.log('[WA] WhatsApp listo para enviar mensajes.');
+    },
+    async (phone, body) => {
+      // Alguien ha contestado — notificar al backend para marcar lead como 'respondido'
+      try {
+        await api.post('/api/captacion/leads/respuesta', { telefono: phone, mensaje: body });
+        console.log(`[WA] Lead ${phone} marcado como respondido automáticamente.`);
+      } catch (err) {
+        console.warn(`[WA] No se pudo marcar lead ${phone} como respondido:`, err.message);
+      }
     }
   );
 

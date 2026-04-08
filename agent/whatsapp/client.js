@@ -10,13 +10,16 @@ const QRCode = require('qrcode');
 let client = null;
 let connected = false;
 let currentQR = null;
+let onIncomingMessage = null; // callback para mensajes recibidos
 
 /**
  * Inicializa el cliente de WhatsApp.
  * @param {(qrBase64: string) => void} onQR — llamado cuando hay un QR nuevo
  * @param {() => void} onReady — llamado cuando WA está listo para enviar mensajes
+ * @param {(phone: string) => void} onMessage — llamado cuando se recibe un mensaje de un contacto
  */
-function initWhatsApp(onQR, onReady) {
+function initWhatsApp(onQR, onReady, onMessage) {
+  onIncomingMessage = onMessage;
   client = new Client({
     authStrategy: new LocalAuth({ dataPath: './wa_session' }),
     puppeteer: {
@@ -59,6 +62,21 @@ function initWhatsApp(onQR, onReady) {
   client.on('disconnected', (reason) => {
     connected = false;
     console.warn('[WhatsApp] Desconectado:', reason);
+  });
+
+  // Mensajes entrantes — detectar respuestas de leads
+  client.on('message', async (msg) => {
+    // Ignorar mensajes de grupos y mensajes propios
+    if (msg.from.includes('@g.us') || msg.fromMe) return;
+
+    // Extraer número limpio (ej: '34612345678@c.us' → '612345678')
+    const rawPhone = msg.from.replace('@c.us', '').replace(/^34/, '');
+
+    console.log(`[WhatsApp] Mensaje recibido de ${rawPhone}: "${msg.body.slice(0, 60)}..."`);
+
+    if (onIncomingMessage) {
+      onIncomingMessage(rawPhone, msg.body);
+    }
   });
 
   client.initialize();

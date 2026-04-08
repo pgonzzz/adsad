@@ -168,6 +168,41 @@ router.put('/leads/:id', async (req, res) => {
   res.json(data);
 });
 
+// POST /captacion/leads/respuesta — el agente notifica que un lead ha contestado por WhatsApp
+router.post('/leads/respuesta', async (req, res) => {
+  if (!checkAgentKey(req, res)) return;
+  const { telefono, mensaje } = req.body;
+  if (!telefono) return res.status(400).json({ error: 'telefono requerido' });
+
+  // Buscar lead por teléfono (puede tener prefijo o no)
+  const variants = [telefono, `34${telefono}`, `+34${telefono}`];
+  let lead = null;
+
+  for (const variant of variants) {
+    const { data } = await supabase
+      .from('captacion_leads')
+      .select('id, estado')
+      .eq('telefono', variant)
+      .in('estado', ['enviado', 'nuevo'])
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .single();
+    if (data) { lead = data; break; }
+  }
+
+  if (!lead) {
+    return res.json({ updated: false, message: 'Lead no encontrado o ya en estado final' });
+  }
+
+  // Marcar como respondido
+  await supabase
+    .from('captacion_leads')
+    .update({ estado: 'respondido', ultimo_contacto: new Date().toISOString(), notas: mensaje ? `Respuesta WA: "${mensaje.slice(0, 200)}"` : undefined })
+    .eq('id', lead.id);
+
+  res.json({ updated: true, lead_id: lead.id });
+});
+
 // DELETE /captacion/leads/:id — eliminar lead
 router.delete('/leads/:id', async (req, res) => {
   const { error } = await supabase
