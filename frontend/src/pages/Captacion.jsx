@@ -168,7 +168,7 @@ function CampanaModal({ open, onClose, editing, onSaved, onSaveAndScrape }) {
   };
 
   return (
-    <Modal open={open} onClose={onClose} title={editing ? 'Editar campaña' : 'Nueva campaña'}>
+    <Modal isOpen={open} onClose={onClose} title={editing ? 'Editar campaña' : 'Nueva campaña'}>
       <div className="space-y-4">
         {/* Nombre */}
         <div>
@@ -361,7 +361,7 @@ function LeadEditModal({ open, onClose, lead, onSaved }) {
   };
 
   return (
-    <Modal open={open} onClose={onClose} title="Editar lead">
+    <Modal isOpen={open} onClose={onClose} title="Editar lead">
       <div className="space-y-4">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Estado</label>
