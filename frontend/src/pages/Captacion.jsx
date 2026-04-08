@@ -7,8 +7,9 @@ import { PROVINCIAS } from '../data/municipios';
 import {
   Plus, Search, Wifi, WifiOff, RefreshCw, ChevronLeft,
   Play, Pause, Pencil, Trash2, MessageSquare, ExternalLink,
-  LayoutGrid, List, Smartphone,
+  LayoutGrid, List, Smartphone, UserPlus,
 } from 'lucide-react';
+import { proveedoresApi } from '../api';
 
 // ─── Constantes ───────────────────────────────────────────────────────────────
 const PORTALES = ['idealista', 'fotocasa', 'habitaclia'];
@@ -402,9 +403,99 @@ function LeadEditModal({ open, onClose, lead, onSaved }) {
   );
 }
 
+// ─── Modal: Convertir lead en Proveedor ───────────────────────────────────────
+function ConvertirProveedorModal({ lead, onClose, onConverted }) {
+  const [form, setForm] = useState({
+    tipo: lead?.es_particular === false ? 'inmobiliaria' : 'particular',
+    nombre: lead?.nombre_vendedor || '',
+    telefono: lead?.telefono || '',
+    email: '',
+    empresa: '',
+    notas: lead?.notas || '',
+  });
+  const [saving, setSaving] = useState(false);
+
+  const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await proveedoresApi.create(form);
+      await captacionApi.updateLead(lead.id, { estado: 'convertido' });
+      onConverted();
+      onClose();
+    } catch (err) {
+      alert('Error al convertir: ' + err.message);
+    }
+    setSaving(false);
+  };
+
+  return (
+    <Modal isOpen={!!lead} onClose={onClose} title="Convertir en proveedor">
+      <div className="space-y-4">
+        <div className="flex items-start gap-3 p-3 bg-green-50 border border-green-200 rounded-lg">
+          <UserPlus size={18} className="text-green-600 mt-0.5 shrink-0" />
+          <p className="text-sm text-green-800">
+            Se creará un nuevo proveedor con estos datos y el lead pasará a estado <strong>Convertido</strong>.
+          </p>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Tipo</label>
+            <select value={form.tipo} onChange={set('tipo')}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none">
+              <option value="particular">Particular</option>
+              <option value="inmobiliaria">Inmobiliaria</option>
+              <option value="promotor">Promotor</option>
+              <option value="banco">Banco</option>
+              <option value="otro">Otro</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Nombre *</label>
+            <input required value={form.nombre} onChange={set('nombre')}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Teléfono</label>
+            <input value={form.telefono} onChange={set('telefono')}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+            <input type="email" value={form.email} onChange={set('email')}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+          </div>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Empresa / Agencia</label>
+          <input value={form.empresa} onChange={set('empresa')} placeholder="Si aplica"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Notas</label>
+          <textarea rows={2} value={form.notas} onChange={set('notas')}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none" />
+        </div>
+        <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Cancelar</button>
+          <button onClick={handleSave} disabled={saving || !form.nombre}
+            className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium disabled:opacity-50">
+            <UserPlus size={14} />
+            {saving ? 'Convirtiendo...' : 'Crear proveedor'}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 // ─── Tabla de leads ───────────────────────────────────────────────────────────
-function LeadsTable({ leads, showCampana = false, onEditLead, onDeleteLead }) {
+function LeadsTable({ leads, showCampana = false, onEditLead, onDeleteLead, onRefresh }) {
   const [filterEstado, setFilterEstado] = useState('');
+  const [convertirLead, setConvertirLead] = useState(null);
 
   const filtered = filterEstado ? leads.filter(l => l.estado === filterEstado) : leads;
 
@@ -495,6 +586,15 @@ function LeadsTable({ leads, showCampana = false, onEditLead, onDeleteLead }) {
                           <ExternalLink size={14} />
                         </a>
                       )}
+                      {lead.estado === 'respondido' && (
+                        <button
+                          onClick={() => setConvertirLead(lead)}
+                          className="p-1 text-gray-400 hover:text-green-600 rounded"
+                          title="Convertir en proveedor"
+                        >
+                          <UserPlus size={14} />
+                        </button>
+                      )}
                       <button
                         onClick={() => onEditLead(lead)}
                         className="p-1 text-gray-400 hover:text-blue-600 rounded"
@@ -516,6 +616,14 @@ function LeadsTable({ leads, showCampana = false, onEditLead, onDeleteLead }) {
             </tbody>
           </table>
         </div>
+      )}
+
+      {convertirLead && (
+        <ConvertirProveedorModal
+          lead={convertirLead}
+          onClose={() => setConvertirLead(null)}
+          onConverted={() => { setConvertirLead(null); if (onRefresh) onRefresh(); }}
+        />
       )}
     </div>
   );
@@ -714,6 +822,7 @@ function CampanaDetail({ campana, onBack, onRefresh, onEditLead, onDeleteLead, a
           showCampana={false}
           onEditLead={handleEditLead}
           onDeleteLead={handleDeleteLead}
+          onRefresh={loadLeads}
         />
       )}
     </div>
@@ -998,6 +1107,7 @@ export default function Captacion() {
             showCampana={true}
             onEditLead={(lead) => handleEditLead(lead, loadAllLeads)}
             onDeleteLead={handleDeleteLeadAll}
+            onRefresh={loadAllLeads}
           />
         </div>
       )}
