@@ -20,7 +20,7 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   const { data: propiedad, error } = await supabase
     .from('propiedades')
-    .select('*, proveedores(id, nombre, tipo, telefono, email)')
+    .select('*, proveedores(id, nombre, tipo, telefono, email, empresa)')
     .eq('id', req.params.id)
     .single();
   if (error) return res.status(500).json({ error: error.message });

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, ImagePlus, X, ExternalLink, Phone, Mail } from 'lucide-react';
+import { ArrowLeft, ImagePlus, X, ExternalLink, Phone, Mail, Building2, FileText, Paperclip, Loader2, Download } from 'lucide-react';
 import { propiedadesApi } from '../api';
 import Badge from '../components/Badge';
 import { supabase } from '../lib/supabase';
@@ -29,48 +29,37 @@ function fmt(n) {
   return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(n);
 }
 
-function InfoRow({ label, value }) {
-  if (!value) return null;
-  return (
-    <div className="flex gap-2">
-      <span className="text-gray-400 w-36 shrink-0 text-sm">{label}</span>
-      <span className="text-gray-900 text-sm font-medium">{value}</span>
-    </div>
-  );
-}
-
 export default function PropiedadDetalle() {
   const { id } = useParams();
   const [propiedad, setPropiedad] = useState(null);
   const [loading, setLoading] = useState(true);
   const [lightbox, setLightbox] = useState(null);
-  const [uploading, setUploading] = useState(false);
+  const [uploadingFoto, setUploadingFoto] = useState(false);
+  const [uploadingAdj, setUploadingAdj] = useState(false);
 
   const load = () => {
     setLoading(true);
-    propiedadesApi.getById(id)
-      .then(setPropiedad)
-      .finally(() => setLoading(false));
+    propiedadesApi.getById(id).then(setPropiedad).finally(() => setLoading(false));
   };
 
   useEffect(load, [id]);
 
-  const handleUpload = async (e) => {
+  const handleUploadFoto = async (e) => {
     const files = Array.from(e.target.files);
     if (!files.length) return;
-    setUploading(true);
-    const nuevasUrls = [...(propiedad.fotos || [])];
+    setUploadingFoto(true);
+    const nuevas = [...(propiedad.fotos || [])];
     for (const file of files) {
       const ext = file.name.split('.').pop();
-      const path = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+      const path = `fotos/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
       const { error } = await supabase.storage.from('propiedades').upload(path, file);
       if (!error) {
         const { data } = supabase.storage.from('propiedades').getPublicUrl(path);
-        nuevasUrls.push(data.publicUrl);
+        nuevas.push(data.publicUrl);
       }
     }
-    await propiedadesApi.update(id, { fotos: nuevasUrls });
-    setUploading(false);
+    await propiedadesApi.update(id, { fotos: nuevas });
+    setUploadingFoto(false);
     load();
   };
 
@@ -78,8 +67,34 @@ export default function PropiedadDetalle() {
     if (!confirm('¿Eliminar esta foto?')) return;
     const path = url.split('/propiedades/')[1];
     await supabase.storage.from('propiedades').remove([path]);
-    const fotos = (propiedad.fotos || []).filter(u => u !== url);
-    await propiedadesApi.update(id, { fotos });
+    await propiedadesApi.update(id, { fotos: (propiedad.fotos || []).filter(u => u !== url) });
+    load();
+  };
+
+  const handleUploadAdj = async (e) => {
+    const files = Array.from(e.target.files);
+    if (!files.length) return;
+    setUploadingAdj(true);
+    const nuevos = [...(propiedad.adjuntos || [])];
+    for (const file of files) {
+      const ext = file.name.split('.').pop();
+      const path = `adjuntos/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+      const { error } = await supabase.storage.from('propiedades').upload(path, file, { contentType: file.type });
+      if (!error) {
+        const { data } = supabase.storage.from('propiedades').getPublicUrl(path);
+        nuevos.push({ nombre: file.name, url: data.publicUrl });
+      }
+    }
+    await propiedadesApi.update(id, { adjuntos: nuevos });
+    setUploadingAdj(false);
+    load();
+  };
+
+  const handleRemoveAdj = async (adj) => {
+    if (!confirm(`¿Eliminar "${adj.nombre}"?`)) return;
+    const path = adj.url.split('/propiedades/')[1];
+    await supabase.storage.from('propiedades').remove([path]);
+    await propiedadesApi.update(id, { adjuntos: (propiedad.adjuntos || []).filter(a => a.url !== adj.url) });
     load();
   };
 
@@ -87,6 +102,7 @@ export default function PropiedadDetalle() {
   if (!propiedad) return <p className="text-red-500 text-sm">Propiedad no encontrada</p>;
 
   const ubicacion = [propiedad.poblacion, propiedad.provincia].filter(Boolean).join(', ');
+  const prov = propiedad.proveedores;
 
   return (
     <div>
@@ -126,16 +142,21 @@ export default function PropiedadDetalle() {
             </div>
           </div>
         </div>
-
         {(propiedad.descripcion || propiedad.notas) && (
           <div className="mt-4 pt-4 border-t border-gray-100 space-y-2">
             {propiedad.descripcion && <p className="text-sm text-gray-600">{propiedad.descripcion}</p>}
-            {propiedad.notas && <p className="text-sm text-gray-400 italic">{propiedad.notas}</p>}
+            {propiedad.notas && (
+              <div>
+                <p className="text-xs font-medium text-gray-400 mb-1">Notas</p>
+                <p className="text-sm text-gray-500 italic">{propiedad.notas}</p>
+              </div>
+            )}
           </div>
         )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-5">
+
         {/* Fotos */}
         <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 shadow-sm p-5">
           <h2 className="font-semibold text-gray-900 mb-4">Fotos</h2>
@@ -144,7 +165,7 @@ export default function PropiedadDetalle() {
               <div key={url} className="relative group">
                 <img
                   src={url} alt=""
-                  className="w-28 h-28 object-cover rounded-lg cursor-pointer hover:opacity-90"
+                  className="w-28 h-28 object-cover rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
                   onClick={() => setLightbox(url)}
                 />
                 <button
@@ -155,52 +176,94 @@ export default function PropiedadDetalle() {
                 </button>
               </div>
             ))}
-            <label className={`w-28 h-28 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors ${uploading ? 'opacity-50 pointer-events-none' : ''}`}>
-              <ImagePlus size={22} className="text-gray-400" />
-              <span className="text-xs text-gray-400 mt-1">{uploading ? 'Subiendo...' : 'Añadir foto'}</span>
-              <input type="file" accept="image/*" multiple className="hidden" onChange={handleUpload} />
+            <label className={`w-28 h-28 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors ${uploadingFoto ? 'opacity-50 pointer-events-none' : ''}`}>
+              {uploadingFoto ? <Loader2 size={22} className="text-gray-400 animate-spin" /> : <ImagePlus size={22} className="text-gray-400" />}
+              <span className="text-xs text-gray-400 mt-1">{uploadingFoto ? 'Subiendo...' : 'Añadir foto'}</span>
+              <input type="file" accept="image/*" multiple className="hidden" onChange={handleUploadFoto} />
             </label>
           </div>
         </div>
 
-        {/* Proveedor */}
+        {/* Proveedor / Propietario */}
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-          <h2 className="font-semibold text-gray-900 mb-4">Proveedor</h2>
-          {propiedad.proveedores ? (
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <span className="font-medium text-gray-900">{propiedad.proveedores.nombre}</span>
-                <Badge value={propiedad.proveedores.tipo} />
+          <h2 className="font-semibold text-gray-900 mb-4">Propietario</h2>
+          {prov ? (
+            <div className="space-y-3">
+              <div className="flex items-start gap-3">
+                <div className="w-9 h-9 bg-blue-100 rounded-full flex items-center justify-center shrink-0">
+                  <Building2 size={16} className="text-blue-600" />
+                </div>
+                <div>
+                  <p className="font-semibold text-gray-900">{prov.nombre}</p>
+                  <Badge value={prov.tipo} />
+                </div>
               </div>
-              {propiedad.proveedores.telefono && (
-                <a href={`tel:${propiedad.proveedores.telefono}`}
-                  className="flex items-center gap-2 text-sm text-gray-600 hover:text-blue-600">
-                  <Phone size={13} /> {propiedad.proveedores.telefono}
+              {prov.empresa && (
+                <div className="flex items-center gap-2 text-sm text-gray-600">
+                  <Building2 size={13} className="text-gray-400 shrink-0" />
+                  <span>{prov.empresa}</span>
+                </div>
+              )}
+              {prov.telefono && (
+                <a href={`tel:${prov.telefono}`} className="flex items-center gap-2 text-sm text-gray-600 hover:text-blue-600">
+                  <Phone size={13} className="text-gray-400 shrink-0" />
+                  {prov.telefono}
                 </a>
               )}
-              {propiedad.proveedores.email && (
-                <a href={`mailto:${propiedad.proveedores.email}`}
-                  className="flex items-center gap-2 text-sm text-gray-600 hover:text-blue-600">
-                  <Mail size={13} /> {propiedad.proveedores.email}
+              {prov.email && (
+                <a href={`mailto:${prov.email}`} className="flex items-center gap-2 text-sm text-gray-600 hover:text-blue-600 break-all">
+                  <Mail size={13} className="text-gray-400 shrink-0" />
+                  {prov.email}
                 </a>
               )}
               <Link to="/proveedores" className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline mt-1">
-                <ExternalLink size={11} /> Ver proveedor
+                <ExternalLink size={11} /> Ver ficha proveedor
               </Link>
             </div>
           ) : (
-            <p className="text-sm text-gray-400">Sin proveedor asignado</p>
+            <p className="text-sm text-gray-400">Sin propietario asignado</p>
           )}
         </div>
+      </div>
+
+      {/* Adjuntos */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 mb-5">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-semibold text-gray-900">Adjuntos</h2>
+          <label className={`inline-flex items-center gap-2 px-3 py-1.5 border border-dashed border-gray-300 rounded-lg text-xs text-gray-500 cursor-pointer hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 transition-colors ${uploadingAdj ? 'opacity-50 pointer-events-none' : ''}`}>
+            {uploadingAdj ? <Loader2 size={12} className="animate-spin" /> : <Paperclip size={12} />}
+            {uploadingAdj ? 'Subiendo...' : 'Añadir adjunto'}
+            <input type="file" multiple className="hidden" onChange={handleUploadAdj} />
+          </label>
+        </div>
+        {!(propiedad.adjuntos?.length) ? (
+          <p className="text-sm text-gray-400">No hay adjuntos. Puedes añadir contratos, planos, fotos adicionales, etc.</p>
+        ) : (
+          <div className="space-y-2">
+            {propiedad.adjuntos.map(adj => (
+              <div key={adj.url} className="flex items-center gap-3 p-3 bg-gray-50 border border-gray-200 rounded-lg group">
+                <FileText size={16} className="text-gray-400 shrink-0" />
+                <span className="flex-1 text-sm text-gray-700 truncate">{adj.nombre}</span>
+                <a href={adj.url} target="_blank" rel="noopener noreferrer"
+                  className="p-1 text-gray-400 hover:text-blue-600 rounded" title="Descargar">
+                  <Download size={14} />
+                </a>
+                <button onClick={() => handleRemoveAdj(adj)}
+                  className="p-1 text-gray-400 hover:text-red-500 rounded opacity-0 group-hover:opacity-100 transition-opacity" title="Eliminar">
+                  <X size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Peticiones que encajan */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
         <div className="px-6 py-4 border-b border-gray-100">
           <h2 className="font-semibold text-gray-900">Inversores que encajan</h2>
-          <p className="text-xs text-gray-400 mt-0.5">Peticiones activas compatibles con esta propiedad (tipo, precio, zona, financiación)</p>
+          <p className="text-xs text-gray-400 mt-0.5">Peticiones activas compatibles con esta propiedad</p>
         </div>
-
         {!propiedad.peticionesMatch?.length ? (
           <div className="text-center py-10 text-gray-400 text-sm">
             No hay peticiones activas que encajen con esta propiedad ahora mismo
@@ -211,10 +274,7 @@ export default function PropiedadDetalle() {
               <div key={p.id} className="px-6 py-4 flex items-start justify-between gap-4">
                 <div className="flex-1 space-y-1.5">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <Link
-                      to={`/inversores/${p.inversores?.id}`}
-                      className="font-medium text-gray-900 hover:text-blue-600"
-                    >
+                    <Link to={`/inversores/${p.inversores?.id}`} className="font-medium text-gray-900 hover:text-blue-600">
                       {p.inversores ? [p.inversores.nombre, p.inversores.apellidos].filter(Boolean).join(' ') : '—'}
                     </Link>
                     {p.inversores?.pipeline && <PipelineTag value={p.inversores.pipeline} />}
@@ -223,30 +283,20 @@ export default function PropiedadDetalle() {
                     )}
                   </div>
                   <div className="flex flex-wrap gap-4 text-xs text-gray-500">
-                    {p.tipos_propiedad?.length > 0 && (
-                      <span>Tipos: {p.tipos_propiedad.join(', ')}</span>
-                    )}
-                    {(p.precio_min || p.precio_max) && (
-                      <span>Precio: {fmt(p.precio_min)} – {fmt(p.precio_max)}</span>
-                    )}
-                    {(p.provincia || p.poblacion) && (
-                      <span>Zona: {[p.poblacion, p.provincia].filter(Boolean).join(', ')}</span>
-                    )}
+                    {p.tipos_propiedad?.length > 0 && <span>Tipos: {p.tipos_propiedad.join(', ')}</span>}
+                    {(p.precio_min || p.precio_max) && <span>Precio: {fmt(p.precio_min)} – {fmt(p.precio_max)}</span>}
+                    {(p.provincia || p.poblacion) && <span>Zona: {[p.poblacion, p.provincia].filter(Boolean).join(', ')}</span>}
                     {p.rentabilidad_min && <span>Rent. mín: {p.rentabilidad_min}%</span>}
                   </div>
                   {p.notas && <p className="text-xs text-gray-400">{p.notas}</p>}
                 </div>
                 <div className="flex gap-2 shrink-0">
                   {p.inversores?.telefono && (
-                    <a href={`tel:${p.inversores.telefono}`}
-                      className="p-1.5 text-gray-400 hover:text-green-600 rounded"
-                      title="Llamar">
+                    <a href={`tel:${p.inversores.telefono}`} className="p-1.5 text-gray-400 hover:text-green-600 rounded" title="Llamar">
                       <Phone size={14} />
                     </a>
                   )}
-                  <Link to={`/inversores/${p.inversores?.id}`}
-                    className="p-1.5 text-gray-400 hover:text-blue-600 rounded"
-                    title="Ver inversor">
+                  <Link to={`/inversores/${p.inversores?.id}`} className="p-1.5 text-gray-400 hover:text-blue-600 rounded" title="Ver inversor">
                     <ExternalLink size={14} />
                   </Link>
                 </div>

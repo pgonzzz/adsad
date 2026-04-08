@@ -4,7 +4,7 @@ import { propiedadesApi, proveedoresApi } from '../api';
 import Modal from '../components/Modal';
 import Badge from '../components/Badge';
 import { supabase } from '../lib/supabase';
-import { ImagePlus, X, Loader2, SlidersHorizontal, ChevronDown } from 'lucide-react';
+import { ImagePlus, X, Loader2, SlidersHorizontal, ChevronDown, Paperclip, FileText } from 'lucide-react';
 import Combobox, { ComboboxMunicipios } from '../components/Combobox';
 import { PROVINCIAS } from '../data/municipios';
 
@@ -21,6 +21,33 @@ function fmt(n) {
   return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(n);
 }
 
+// Abanico de hasta 3 fotos
+function FotosFan({ fotos, onClick }) {
+  if (!fotos?.length) return (
+    <div className="w-14 h-14 bg-gray-100 rounded-lg flex items-center justify-center shrink-0">
+      <ImagePlus size={16} className="text-gray-300" />
+    </div>
+  );
+  const preview = fotos.slice(0, 3);
+  const rotations = [-7, -2, 4];
+  return (
+    <div
+      className="relative w-14 h-14 shrink-0 cursor-pointer"
+      onClick={e => { e.stopPropagation(); onClick && onClick(fotos[0]); }}
+    >
+      {preview.map((url, i) => (
+        <img
+          key={url}
+          src={url}
+          alt=""
+          className="absolute w-12 h-12 object-cover rounded-lg border-2 border-white shadow-sm"
+          style={{ transform: `rotate(${rotations[i]}deg)`, zIndex: i + 1, top: 1, left: i * 2 }}
+        />
+      ))}
+    </div>
+  );
+}
+
 export default function Propiedades() {
   const navigate = useNavigate();
   const [propiedades, setPropiedades] = useState([]);
@@ -30,10 +57,13 @@ export default function Propiedades() {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(empty);
   const [fotos, setFotos] = useState([]);
+  const [adjuntos, setAdjuntos] = useState([]); // [{nombre, url}]
   const [uploading, setUploading] = useState(false);
+  const [uploadingAdj, setUploadingAdj] = useState(false);
   const [lightbox, setLightbox] = useState(null);
   const [showFilters, setShowFilters] = useState(false);
   const fileRef = useRef();
+  const adjRef = useRef();
 
   // Filters
   const [fProvincia, setFProvincia] = useState('');
@@ -51,22 +81,18 @@ export default function Propiedades() {
 
   const loadPropiedades = () => {
     setLoading(true);
-    propiedadesApi.getAll()
-      .then(setPropiedades)
-      .finally(() => setLoading(false));
+    propiedadesApi.getAll().then(setPropiedades).finally(() => setLoading(false));
   };
 
   useEffect(loadPropiedades, []);
   useEffect(() => { proveedoresApi.getAll().then(setProveedores); }, []);
 
   const openCreate = () => {
-    setEditing(null);
-    setForm(empty);
-    setFotos([]);
-    setModal(true);
+    setEditing(null); setForm(empty); setFotos([]); setAdjuntos([]); setModal(true);
   };
 
-  const openEdit = (p) => {
+  const openEdit = (p, e) => {
+    e.stopPropagation();
     setEditing(p);
     setForm({
       tipo: p.tipo, provincia: p.provincia || '', poblacion: p.poblacion || '',
@@ -76,24 +102,25 @@ export default function Propiedades() {
       estado: p.estado, proveedor_id: p.proveedor_id || '', notas: p.notas || '',
     });
     setFotos(p.fotos || []);
+    setAdjuntos(p.adjuntos || []);
     setModal(true);
   };
 
-  const handleUpload = async (e) => {
+  const handleUploadFoto = async (e) => {
     const files = Array.from(e.target.files);
     if (!files.length) return;
     setUploading(true);
-    const nuevasUrls = [];
+    const nuevas = [];
     for (const file of files) {
       const ext = file.name.split('.').pop();
-      const path = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+      const path = `fotos/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
       const { error } = await supabase.storage.from('propiedades').upload(path, file);
       if (!error) {
         const { data } = supabase.storage.from('propiedades').getPublicUrl(path);
-        nuevasUrls.push(data.publicUrl);
+        nuevas.push(data.publicUrl);
       }
     }
-    setFotos(f => [...f, ...nuevasUrls]);
+    setFotos(f => [...f, ...nuevas]);
     setUploading(false);
     fileRef.current.value = '';
   };
@@ -102,6 +129,31 @@ export default function Propiedades() {
     const path = url.split('/propiedades/')[1];
     await supabase.storage.from('propiedades').remove([path]);
     setFotos(f => f.filter(u => u !== url));
+  };
+
+  const handleUploadAdj = async (e) => {
+    const files = Array.from(e.target.files);
+    if (!files.length) return;
+    setUploadingAdj(true);
+    const nuevos = [];
+    for (const file of files) {
+      const ext = file.name.split('.').pop();
+      const path = `adjuntos/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+      const { error } = await supabase.storage.from('propiedades').upload(path, file, { contentType: file.type });
+      if (!error) {
+        const { data } = supabase.storage.from('propiedades').getPublicUrl(path);
+        nuevos.push({ nombre: file.name, url: data.publicUrl });
+      }
+    }
+    setAdjuntos(a => [...a, ...nuevos]);
+    setUploadingAdj(false);
+    adjRef.current.value = '';
+  };
+
+  const handleRemoveAdj = async (adj) => {
+    const path = adj.url.split('/propiedades/')[1];
+    await supabase.storage.from('propiedades').remove([path]);
+    setAdjuntos(a => a.filter(x => x.url !== adj.url));
   };
 
   const handleSubmit = async (e) => {
@@ -113,6 +165,7 @@ export default function Propiedades() {
       rentabilidad_neta: form.rentabilidad_neta ? Number(form.rentabilidad_neta) : null,
       proveedor_id: form.proveedor_id || null,
       fotos,
+      adjuntos,
     };
     if (editing) await propiedadesApi.update(editing.id, payload);
     else await propiedadesApi.create(payload);
@@ -120,7 +173,8 @@ export default function Propiedades() {
     loadPropiedades();
   };
 
-  const handleDelete = async (id) => {
+  const handleDelete = async (id, e) => {
+    e.stopPropagation();
     if (!confirm('¿Eliminar esta propiedad?')) return;
     await propiedadesApi.delete(id);
     loadPropiedades();
@@ -247,7 +301,7 @@ export default function Propiedades() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
-                <th className="px-4 py-3">Foto</th>
+                <th className="px-4 py-3">Fotos</th>
                 <th className="px-4 py-3">Tipo</th>
                 <th className="px-4 py-3">Estado</th>
                 <th className="px-4 py-3">Provincia / Población</th>
@@ -266,20 +320,9 @@ export default function Propiedades() {
               ) : filtered.map(p => (
                 <tr key={p.id} className="border-b last:border-0 hover:bg-gray-50 cursor-pointer" onClick={() => navigate(`/propiedades/${p.id}`)}>
                   <td className="px-4 py-3">
-                    {p.fotos?.length > 0 ? (
-                      <img
-                        src={p.fotos[0]}
-                        alt=""
-                        className="w-12 h-12 object-cover rounded-lg cursor-pointer hover:opacity-80"
-                        onClick={() => setLightbox(p.fotos[0])}
-                      />
-                    ) : (
-                      <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center">
-                        <ImagePlus size={16} className="text-gray-300" />
-                      </div>
-                    )}
+                    <FotosFan fotos={p.fotos} onClick={url => setLightbox(url)} />
                   </td>
-                  <td className="px-4 py-3"><span className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-xs font-medium">{p.tipo}</span></td>
+                  <td className="px-4 py-3"><span className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-xs font-medium capitalize">{p.tipo}</span></td>
                   <td className="px-4 py-3"><Badge value={p.estado} /></td>
                   <td className="px-4 py-3 text-gray-900">
                     {p.provincia || p.poblacion ? (
@@ -290,13 +333,19 @@ export default function Propiedades() {
                   <td className="px-4 py-3 text-gray-600">{p.rentabilidad_bruta ? `${p.rentabilidad_bruta}%` : '—'}</td>
                   <td className="px-4 py-3">{p.acepta_financiacion ? '✓' : '—'}</td>
                   <td className="px-4 py-3 text-gray-600">
-                    {p.proveedores ? (
-                      <span>{p.proveedores.nombre} <Badge value={p.proveedores.tipo} /></span>
-                    ) : '—'}
+                    {p.proveedores ? <span>{p.proveedores.nombre} <Badge value={p.proveedores.tipo} /></span> : '—'}
                   </td>
-                  <td className="px-4 py-3 text-right space-x-3" onClick={e => e.stopPropagation()}>
-                    <button onClick={() => openEdit(p)} className="text-gray-400 hover:text-gray-700">Editar</button>
-                    <button onClick={() => handleDelete(p.id)} className="text-red-400 hover:text-red-600">Eliminar</button>
+                  <td className="px-4 py-3 text-right" onClick={e => e.stopPropagation()}>
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        onClick={() => navigate(`/propiedades/${p.id}`)}
+                        className="px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700"
+                      >
+                        Ficha
+                      </button>
+                      <button onClick={(e) => openEdit(p, e)} className="text-gray-400 hover:text-gray-700 text-xs">Editar</button>
+                      <button onClick={(e) => handleDelete(p.id, e)} className="text-red-400 hover:text-red-600 text-xs">Eliminar</button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -307,14 +356,9 @@ export default function Propiedades() {
 
       {/* Lightbox */}
       {lightbox && (
-        <div
-          className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4"
-          onClick={() => setLightbox(null)}
-        >
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4" onClick={() => setLightbox(null)}>
           <img src={lightbox} alt="" className="max-w-full max-h-full rounded-lg shadow-xl" />
-          <button className="absolute top-4 right-4 text-white hover:text-gray-300">
-            <X size={28} />
-          </button>
+          <button className="absolute top-4 right-4 text-white hover:text-gray-300"><X size={28} /></button>
         </div>
       )}
 
@@ -339,20 +383,11 @@ export default function Propiedades() {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Provincia</label>
-              <Combobox
-                options={PROVINCIAS}
-                value={form.provincia}
-                onChange={v => setForm(f => ({ ...f, provincia: v, poblacion: '' }))}
-                placeholder="Selecciona provincia"
-              />
+              <Combobox options={PROVINCIAS} value={form.provincia} onChange={v => setForm(f => ({ ...f, provincia: v, poblacion: '' }))} placeholder="Selecciona provincia" />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Población</label>
-              <ComboboxMunicipios
-                provincia={form.provincia}
-                value={form.poblacion}
-                onChange={v => setForm(f => ({ ...f, poblacion: v }))}
-              />
+              <ComboboxMunicipios provincia={form.provincia} value={form.poblacion} onChange={v => setForm(f => ({ ...f, poblacion: v }))} />
             </div>
           </div>
           <div className="grid grid-cols-3 gap-3">
@@ -377,9 +412,7 @@ export default function Propiedades() {
             <select value={form.proveedor_id} onChange={set('proveedor_id')}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
               <option value="">Sin proveedor</option>
-              {proveedores.map(p => (
-                <option key={p.id} value={p.id}>{p.nombre} ({p.tipo})</option>
-              ))}
+              {proveedores.map(p => <option key={p.id} value={p.id}>{p.nombre} ({p.tipo})</option>)}
             </select>
           </div>
           <div>
@@ -401,36 +434,44 @@ export default function Propiedades() {
           {/* Fotos */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Fotos</label>
-            <div className="flex flex-wrap gap-2 mb-2">
+            <div className="flex flex-wrap gap-2">
               {fotos.map(url => (
                 <div key={url} className="relative group">
-                  <img
-                    src={url} alt=""
-                    className="w-20 h-20 object-cover rounded-lg cursor-pointer"
-                    onClick={() => setLightbox(url)}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveFoto(url)}
-                    className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                  >
+                  <img src={url} alt="" className="w-20 h-20 object-cover rounded-lg cursor-pointer" onClick={() => setLightbox(url)} />
+                  <button type="button" onClick={() => handleRemoveFoto(url)}
+                    className="absolute -top-1.5 -right-1.5 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                     <X size={10} />
                   </button>
                 </div>
               ))}
               <label className={`w-20 h-20 border-2 border-dashed border-gray-300 rounded-lg flex flex-col items-center justify-center cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors ${uploading ? 'opacity-50 pointer-events-none' : ''}`}>
-                {uploading ? <Loader2 size={20} className="text-gray-400 animate-spin" /> : <ImagePlus size={20} className="text-gray-400" />}
+                {uploading ? <Loader2 size={18} className="text-gray-400 animate-spin" /> : <ImagePlus size={18} className="text-gray-400" />}
                 <span className="text-xs text-gray-400 mt-1">{uploading ? 'Subiendo...' : 'Añadir'}</span>
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept="image/*"
-                  multiple
-                  className="hidden"
-                  onChange={handleUpload}
-                />
+                <input ref={fileRef} type="file" accept="image/*" multiple className="hidden" onChange={handleUploadFoto} />
               </label>
             </div>
+          </div>
+
+          {/* Adjuntos */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Adjuntos</label>
+            <div className="space-y-2 mb-2">
+              {adjuntos.map(adj => (
+                <div key={adj.url} className="flex items-center gap-2 p-2 bg-gray-50 border border-gray-200 rounded-lg">
+                  <FileText size={14} className="text-gray-400 shrink-0" />
+                  <a href={adj.url} target="_blank" rel="noopener noreferrer"
+                    className="flex-1 text-sm text-blue-600 hover:underline truncate">{adj.nombre}</a>
+                  <button type="button" onClick={() => handleRemoveAdj(adj)} className="text-gray-400 hover:text-red-500">
+                    <X size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <label className={`inline-flex items-center gap-2 px-3 py-2 border border-dashed border-gray-300 rounded-lg text-sm text-gray-500 cursor-pointer hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50 transition-colors ${uploadingAdj ? 'opacity-50 pointer-events-none' : ''}`}>
+              {uploadingAdj ? <Loader2 size={14} className="animate-spin" /> : <Paperclip size={14} />}
+              {uploadingAdj ? 'Subiendo...' : 'Añadir adjunto'}
+              <input ref={adjRef} type="file" multiple className="hidden" onChange={handleUploadAdj} />
+            </label>
           </div>
 
           <div className="flex justify-end gap-3 pt-2">
