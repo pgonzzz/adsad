@@ -1,18 +1,21 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, ImagePlus, X, ExternalLink, Phone, Mail, Building2, FileText, Paperclip, Loader2, Download } from 'lucide-react';
-import { propiedadesApi } from '../api';
+import {
+  ArrowLeft, ImagePlus, X, ExternalLink, Phone, Mail, Building2,
+  FileText, Paperclip, Loader2, Download, Pencil, Check, Send, User2
+} from 'lucide-react';
+import { propiedadesApi, proveedoresApi } from '../api';
 import Badge from '../components/Badge';
 import { supabase } from '../lib/supabase';
 
 const PIPELINE = [
-  { value: 'en_busca',     label: 'En busca',     bg: 'bg-blue-100',   text: 'text-blue-700' },
-  { value: 'reservada',    label: 'Reservada',     bg: 'bg-purple-100', text: 'text-purple-700' },
-  { value: 'financiacion', label: 'Financiación',  bg: 'bg-amber-100',  text: 'text-amber-700' },
-  { value: 'tramites',     label: 'Trámites',      bg: 'bg-orange-100', text: 'text-orange-700' },
-  { value: 'comprado',     label: 'Comprado',      bg: 'bg-green-100',  text: 'text-green-700' },
-  { value: 'pospuesto',    label: 'Pospuesto',     bg: 'bg-gray-100',   text: 'text-gray-500' },
-  { value: 'descartado',   label: 'Descartado',    bg: 'bg-red-100',    text: 'text-red-700' },
+  { value: 'en_busca',     label: 'En busca',    bg: 'bg-blue-100',   text: 'text-blue-700' },
+  { value: 'reservada',    label: 'Reservada',    bg: 'bg-purple-100', text: 'text-purple-700' },
+  { value: 'financiacion', label: 'Financiación', bg: 'bg-amber-100',  text: 'text-amber-700' },
+  { value: 'tramites',     label: 'Trámites',     bg: 'bg-orange-100', text: 'text-orange-700' },
+  { value: 'comprado',     label: 'Comprado',     bg: 'bg-green-100',  text: 'text-green-700' },
+  { value: 'pospuesto',    label: 'Pospuesto',    bg: 'bg-gray-100',   text: 'text-gray-500' },
+  { value: 'descartado',   label: 'Descartado',   bg: 'bg-red-100',    text: 'text-red-700' },
 ];
 
 function PipelineTag({ value }) {
@@ -29,21 +32,56 @@ function fmt(n) {
   return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(n);
 }
 
+function fmtDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return d.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })
+    + ' · ' + d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+}
+
+function avatarInitials(name) {
+  if (!name) return '?';
+  const parts = name.split(/[\s@]/);
+  return (parts[0]?.[0] || '').toUpperCase() + (parts[1]?.[0] || '').toUpperCase();
+}
+
 export default function PropiedadDetalle() {
   const { id } = useParams();
   const [propiedad, setPropiedad] = useState(null);
+  const [proveedores, setProveedores] = useState([]);
   const [loading, setLoading] = useState(true);
   const [lightbox, setLightbox] = useState(null);
   const [uploadingFoto, setUploadingFoto] = useState(false);
   const [uploadingAdj, setUploadingAdj] = useState(false);
 
+  // Propietario
+  const [editPropietario, setEditPropietario] = useState(false);
+  const [selectedProveedor, setSelectedProveedor] = useState('');
+  const [savingProveedor, setSavingProveedor] = useState(false);
+
+  // Comentarios / notas
+  const [nuevoComentario, setNuevoComentario] = useState('');
+  const [savingComentario, setSavingComentario] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
+  const textareaRef = useRef();
+
   const load = () => {
     setLoading(true);
-    propiedadesApi.getById(id).then(setPropiedad).finally(() => setLoading(false));
+    propiedadesApi.getById(id).then(p => {
+      setPropiedad(p);
+      setSelectedProveedor(p.proveedor_id || '');
+    }).finally(() => setLoading(false));
   };
 
   useEffect(load, [id]);
+  useEffect(() => { proveedoresApi.getAll().then(setProveedores); }, []);
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (data?.user) setCurrentUser(data.user);
+    });
+  }, []);
 
+  // ── Fotos ──────────────────────────────────────────────────────────────────
   const handleUploadFoto = async (e) => {
     const files = Array.from(e.target.files);
     if (!files.length) return;
@@ -71,6 +109,7 @@ export default function PropiedadDetalle() {
     load();
   };
 
+  // ── Adjuntos ───────────────────────────────────────────────────────────────
   const handleUploadAdj = async (e) => {
     const files = Array.from(e.target.files);
     if (!files.length) return;
@@ -98,11 +137,56 @@ export default function PropiedadDetalle() {
     load();
   };
 
+  // ── Propietario ────────────────────────────────────────────────────────────
+  const handleGuardarProveedor = async () => {
+    setSavingProveedor(true);
+    await propiedadesApi.update(id, { proveedor_id: selectedProveedor || null });
+    setSavingProveedor(false);
+    setEditPropietario(false);
+    load();
+  };
+
+  // ── Comentarios ────────────────────────────────────────────────────────────
+  const handleAddComentario = async () => {
+    const texto = nuevoComentario.trim();
+    if (!texto) return;
+    setSavingComentario(true);
+    const comentarios = [...(propiedad.comentarios || [])];
+    const userName = currentUser?.user_metadata?.full_name
+      || currentUser?.email?.split('@')[0]
+      || 'Usuario';
+    comentarios.push({
+      id: Date.now().toString(),
+      texto,
+      usuario: userName,
+      email: currentUser?.email || '',
+      created_at: new Date().toISOString(),
+    });
+    await propiedadesApi.update(id, { comentarios });
+    setNuevoComentario('');
+    setSavingComentario(false);
+    load();
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      handleAddComentario();
+    }
+  };
+
+  const handleDeleteComentario = async (cId) => {
+    if (!confirm('¿Eliminar este comentario?')) return;
+    const comentarios = (propiedad.comentarios || []).filter(c => c.id !== cId);
+    await propiedadesApi.update(id, { comentarios });
+    load();
+  };
+
   if (loading) return <p className="text-gray-400 text-sm">Cargando...</p>;
   if (!propiedad) return <p className="text-red-500 text-sm">Propiedad no encontrada</p>;
 
   const ubicacion = [propiedad.poblacion, propiedad.provincia].filter(Boolean).join(', ');
   const prov = propiedad.proveedores;
+  const comentarios = propiedad.comentarios || [];
 
   return (
     <div>
@@ -110,10 +194,10 @@ export default function PropiedadDetalle() {
         <ArrowLeft size={14} /> Propiedades
       </Link>
 
-      {/* Cabecera */}
+      {/* ── Cabecera ── */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 mb-5">
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div>
+        <div className="flex items-start gap-4 flex-wrap">
+          <div className="flex-1">
             <div className="flex items-center gap-3 flex-wrap mb-2">
               <h1 className="text-2xl font-bold text-gray-900 capitalize">{propiedad.tipo}</h1>
               <Badge value={propiedad.estado} />
@@ -140,24 +224,16 @@ export default function PropiedadDetalle() {
                 </div>
               )}
             </div>
-          </div>
-        </div>
-        {(propiedad.descripcion || propiedad.notas) && (
-          <div className="mt-4 pt-4 border-t border-gray-100 space-y-2">
-            {propiedad.descripcion && <p className="text-sm text-gray-600">{propiedad.descripcion}</p>}
-            {propiedad.notas && (
-              <div>
-                <p className="text-xs font-medium text-gray-400 mb-1">Notas</p>
-                <p className="text-sm text-gray-500 italic">{propiedad.notas}</p>
-              </div>
+            {propiedad.descripcion && (
+              <p className="mt-3 text-sm text-gray-600">{propiedad.descripcion}</p>
             )}
           </div>
-        )}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-5">
 
-        {/* Fotos */}
+        {/* ── Fotos ── */}
         <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 shadow-sm p-5">
           <h2 className="font-semibold text-gray-900 mb-4">Fotos</h2>
           <div className="flex flex-wrap gap-3">
@@ -184,9 +260,47 @@ export default function PropiedadDetalle() {
           </div>
         </div>
 
-        {/* Proveedor / Propietario */}
+        {/* ── Propietario ── */}
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-          <h2 className="font-semibold text-gray-900 mb-4">Propietario</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-semibold text-gray-900">Propietario</h2>
+            <button
+              onClick={() => setEditPropietario(v => !v)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg transition-colors"
+            >
+              <Pencil size={11} />
+              {prov ? 'Cambiar' : 'Asignar'}
+            </button>
+          </div>
+
+          {/* Selector inline */}
+          {editPropietario && (
+            <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-lg space-y-2">
+              <select
+                value={selectedProveedor}
+                onChange={e => setSelectedProveedor(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              >
+                <option value="">— Sin propietario —</option>
+                {proveedores.map(p => (
+                  <option key={p.id} value={p.id}>{p.nombre} ({p.tipo})</option>
+                ))}
+              </select>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleGuardarProveedor}
+                  disabled={savingProveedor}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg disabled:opacity-50"
+                >
+                  <Check size={11} /> {savingProveedor ? 'Guardando...' : 'Guardar'}
+                </button>
+                <button onClick={() => setEditPropietario(false)} className="px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700">
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
+
           {prov ? (
             <div className="space-y-3">
               <div className="flex items-start gap-3">
@@ -226,7 +340,7 @@ export default function PropiedadDetalle() {
         </div>
       </div>
 
-      {/* Adjuntos */}
+      {/* ── Adjuntos ── */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 mb-5">
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-semibold text-gray-900">Adjuntos</h2>
@@ -237,7 +351,7 @@ export default function PropiedadDetalle() {
           </label>
         </div>
         {!(propiedad.adjuntos?.length) ? (
-          <p className="text-sm text-gray-400">No hay adjuntos. Puedes añadir contratos, planos, fotos adicionales, etc.</p>
+          <p className="text-sm text-gray-400">No hay adjuntos. Puedes añadir contratos, planos, etc.</p>
         ) : (
           <div className="space-y-2">
             {propiedad.adjuntos.map(adj => (
@@ -249,7 +363,7 @@ export default function PropiedadDetalle() {
                   <Download size={14} />
                 </a>
                 <button onClick={() => handleRemoveAdj(adj)}
-                  className="p-1 text-gray-400 hover:text-red-500 rounded opacity-0 group-hover:opacity-100 transition-opacity" title="Eliminar">
+                  className="p-1 text-gray-400 hover:text-red-500 rounded opacity-0 group-hover:opacity-100 transition-opacity">
                   <X size={14} />
                 </button>
               </div>
@@ -258,7 +372,73 @@ export default function PropiedadDetalle() {
         )}
       </div>
 
-      {/* Peticiones que encajan */}
+      {/* ── Notas / Comentarios ── */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 mb-5">
+        <h2 className="font-semibold text-gray-900 mb-4">Notas</h2>
+
+        {/* Lista de comentarios */}
+        {comentarios.length > 0 && (
+          <div className="space-y-4 mb-5">
+            {comentarios.map(c => (
+              <div key={c.id} className="flex gap-3 group">
+                {/* Avatar */}
+                <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold shrink-0 mt-0.5">
+                  {avatarInitials(c.usuario)}
+                </div>
+                {/* Contenido */}
+                <div className="flex-1">
+                  <div className="flex items-baseline gap-2 flex-wrap">
+                    <span className="text-sm font-semibold text-gray-900">{c.usuario}</span>
+                    <span className="text-xs text-gray-400">{fmtDate(c.created_at)}</span>
+                  </div>
+                  <p className="text-sm text-gray-700 mt-0.5 whitespace-pre-wrap">{c.texto}</p>
+                </div>
+                {/* Eliminar */}
+                <button
+                  onClick={() => handleDeleteComentario(c.id)}
+                  className="p-1 text-gray-300 hover:text-red-400 rounded opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-0.5"
+                  title="Eliminar nota"
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {comentarios.length === 0 && (
+          <p className="text-sm text-gray-400 mb-4">Sin notas todavía.</p>
+        )}
+
+        {/* Input nueva nota */}
+        <div className="flex gap-3 items-start">
+          <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 text-xs font-bold shrink-0 mt-0.5">
+            {currentUser ? avatarInitials(currentUser.user_metadata?.full_name || currentUser.email) : <User2 size={14} />}
+          </div>
+          <div className="flex-1 relative">
+            <textarea
+              ref={textareaRef}
+              rows={2}
+              value={nuevoComentario}
+              onChange={e => setNuevoComentario(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Añade una nota... (Cmd+Enter para guardar)"
+              className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none pr-12"
+            />
+            <button
+              onClick={handleAddComentario}
+              disabled={!nuevoComentario.trim() || savingComentario}
+              className="absolute right-2.5 bottom-2.5 p-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              title="Guardar nota"
+            >
+              {savingComentario ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
+            </button>
+          </div>
+        </div>
+        <p className="text-xs text-gray-400 mt-1.5 ml-11">Cmd+Enter para guardar</p>
+      </div>
+
+      {/* ── Inversores que encajan ── */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
         <div className="px-6 py-4 border-b border-gray-100">
           <h2 className="font-semibold text-gray-900">Inversores que encajan</h2>
@@ -306,7 +486,7 @@ export default function PropiedadDetalle() {
         )}
       </div>
 
-      {/* Lightbox */}
+      {/* ── Lightbox ── */}
       {lightbox && (
         <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4" onClick={() => setLightbox(null)}>
           <img src={lightbox} alt="" className="max-w-full max-h-full rounded-lg shadow-xl" />
