@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   ArrowLeft, ImagePlus, X, ExternalLink, Phone, Mail, Building2,
-  FileText, Paperclip, Loader2, Download, Pencil, Check, Send, User2
+  FileText, Paperclip, Loader2, Download, Pencil, Check, Send, User2, Trash2
 } from 'lucide-react';
 import { propiedadesApi, proveedoresApi } from '../api';
 import Badge from '../components/Badge';
@@ -45,6 +45,33 @@ function avatarInitials(name) {
   return (parts[0]?.[0] || '').toUpperCase() + (parts[1]?.[0] || '').toUpperCase();
 }
 
+// ── Diálogo de confirmación in-app ────────────────────────────────────────────
+function ConfirmDialog({ open, title, message, onConfirm, onCancel, confirmLabel = 'Eliminar', danger = true }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6" onClick={e => e.stopPropagation()}>
+        <h3 className="text-base font-semibold text-gray-900 mb-2">{title}</h3>
+        {message && <p className="text-sm text-gray-500 mb-5">{message}</p>}
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={onCancel}
+            className="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={onConfirm}
+            className={`px-4 py-2 text-sm text-white font-medium rounded-lg ${danger ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}`}
+          >
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function PropiedadDetalle() {
   const { id } = useParams();
   const [propiedad, setPropiedad] = useState(null);
@@ -59,11 +86,15 @@ export default function PropiedadDetalle() {
   const [selectedProveedor, setSelectedProveedor] = useState('');
   const [savingProveedor, setSavingProveedor] = useState(false);
 
-  // Comentarios / notas
+  // Comentarios
   const [nuevoComentario, setNuevoComentario] = useState('');
   const [savingComentario, setSavingComentario] = useState(false);
   const [currentUser, setCurrentUser] = useState(null);
-  const textareaRef = useRef();
+  const [editingComentario, setEditingComentario] = useState(null); // { id, texto }
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  // Confirmación in-app
+  const [confirm, setConfirm] = useState(null); // { title, message, onConfirm }
 
   const load = () => {
     setLoading(true);
@@ -80,6 +111,10 @@ export default function PropiedadDetalle() {
       if (data?.user) setCurrentUser(data.user);
     });
   }, []);
+
+  const askConfirm = (title, message, onConfirm) => {
+    setConfirm({ title, message, onConfirm });
+  };
 
   // ── Fotos ──────────────────────────────────────────────────────────────────
   const handleUploadFoto = async (e) => {
@@ -101,12 +136,14 @@ export default function PropiedadDetalle() {
     load();
   };
 
-  const handleRemoveFoto = async (url) => {
-    if (!confirm('¿Eliminar esta foto?')) return;
-    const path = url.split('/propiedades/')[1];
-    await supabase.storage.from('propiedades').remove([path]);
-    await propiedadesApi.update(id, { fotos: (propiedad.fotos || []).filter(u => u !== url) });
-    load();
+  const handleRemoveFoto = (url) => {
+    askConfirm('Eliminar foto', '¿Seguro que quieres eliminar esta foto? Esta acción no se puede deshacer.', async () => {
+      const path = url.split('/propiedades/')[1];
+      await supabase.storage.from('propiedades').remove([path]);
+      await propiedadesApi.update(id, { fotos: (propiedad.fotos || []).filter(u => u !== url) });
+      setConfirm(null);
+      load();
+    });
   };
 
   // ── Adjuntos ───────────────────────────────────────────────────────────────
@@ -129,12 +166,14 @@ export default function PropiedadDetalle() {
     load();
   };
 
-  const handleRemoveAdj = async (adj) => {
-    if (!confirm(`¿Eliminar "${adj.nombre}"?`)) return;
-    const path = adj.url.split('/propiedades/')[1];
-    await supabase.storage.from('propiedades').remove([path]);
-    await propiedadesApi.update(id, { adjuntos: (propiedad.adjuntos || []).filter(a => a.url !== adj.url) });
-    load();
+  const handleRemoveAdj = (adj) => {
+    askConfirm('Eliminar adjunto', `¿Eliminar "${adj.nombre}"?`, async () => {
+      const path = adj.url.split('/propiedades/')[1];
+      await supabase.storage.from('propiedades').remove([path]);
+      await propiedadesApi.update(id, { adjuntos: (propiedad.adjuntos || []).filter(a => a.url !== adj.url) });
+      setConfirm(null);
+      load();
+    });
   };
 
   // ── Propietario ────────────────────────────────────────────────────────────
@@ -147,18 +186,18 @@ export default function PropiedadDetalle() {
   };
 
   // ── Comentarios ────────────────────────────────────────────────────────────
+  const getUserName = () =>
+    currentUser?.user_metadata?.full_name || currentUser?.email?.split('@')[0] || 'Usuario';
+
   const handleAddComentario = async () => {
     const texto = nuevoComentario.trim();
     if (!texto) return;
     setSavingComentario(true);
     const comentarios = [...(propiedad.comentarios || [])];
-    const userName = currentUser?.user_metadata?.full_name
-      || currentUser?.email?.split('@')[0]
-      || 'Usuario';
     comentarios.push({
       id: Date.now().toString(),
       texto,
-      usuario: userName,
+      usuario: getUserName(),
       email: currentUser?.email || '',
       created_at: new Date().toISOString(),
     });
@@ -169,16 +208,36 @@ export default function PropiedadDetalle() {
   };
 
   const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-      handleAddComentario();
-    }
+    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleAddComentario();
   };
 
-  const handleDeleteComentario = async (cId) => {
-    if (!confirm('¿Eliminar este comentario?')) return;
-    const comentarios = (propiedad.comentarios || []).filter(c => c.id !== cId);
+  const handleStartEdit = (c) => {
+    setEditingComentario({ id: c.id, texto: c.texto });
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingComentario?.texto.trim()) return;
+    setSavingEdit(true);
+    const comentarios = (propiedad.comentarios || []).map(c =>
+      c.id === editingComentario.id
+        ? { ...c, texto: editingComentario.texto.trim(), editado_at: new Date().toISOString() }
+        : c
+    );
     await propiedadesApi.update(id, { comentarios });
+    setEditingComentario(null);
+    setSavingEdit(false);
     load();
+  };
+
+  const handleCancelEdit = () => setEditingComentario(null);
+
+  const handleDeleteComentario = (cId) => {
+    askConfirm('Eliminar nota', '¿Seguro que quieres eliminar esta nota?', async () => {
+      const comentarios = (propiedad.comentarios || []).filter(c => c.id !== cId);
+      await propiedadesApi.update(id, { comentarios });
+      setConfirm(null);
+      load();
+    });
   };
 
   if (loading) return <p className="text-gray-400 text-sm">Cargando...</p>;
@@ -273,7 +332,6 @@ export default function PropiedadDetalle() {
             </button>
           </div>
 
-          {/* Selector inline */}
           {editPropietario && (
             <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-lg space-y-2">
               <select
@@ -376,31 +434,71 @@ export default function PropiedadDetalle() {
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 mb-5">
         <h2 className="font-semibold text-gray-900 mb-4">Notas</h2>
 
-        {/* Lista de comentarios */}
         {comentarios.length > 0 && (
-          <div className="space-y-4 mb-5">
+          <div className="space-y-5 mb-5">
             {comentarios.map(c => (
               <div key={c.id} className="flex gap-3 group">
                 {/* Avatar */}
                 <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold shrink-0 mt-0.5">
                   {avatarInitials(c.usuario)}
                 </div>
-                {/* Contenido */}
-                <div className="flex-1">
-                  <div className="flex items-baseline gap-2 flex-wrap">
+
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-baseline gap-2 flex-wrap mb-1">
                     <span className="text-sm font-semibold text-gray-900">{c.usuario}</span>
                     <span className="text-xs text-gray-400">{fmtDate(c.created_at)}</span>
+                    {c.editado_at && (
+                      <span className="text-xs text-gray-300 italic">editado</span>
+                    )}
                   </div>
-                  <p className="text-sm text-gray-700 mt-0.5 whitespace-pre-wrap">{c.texto}</p>
+
+                  {/* Modo edición */}
+                  {editingComentario?.id === c.id ? (
+                    <div className="space-y-2">
+                      <textarea
+                        rows={3}
+                        value={editingComentario.texto}
+                        onChange={e => setEditingComentario(prev => ({ ...prev, texto: e.target.value }))}
+                        className="w-full border border-blue-400 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                        autoFocus
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          onClick={handleSaveEdit}
+                          disabled={savingEdit || !editingComentario.texto.trim()}
+                          className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg disabled:opacity-50"
+                        >
+                          <Check size={11} /> {savingEdit ? 'Guardando...' : 'Guardar'}
+                        </button>
+                        <button onClick={handleCancelEdit} className="px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700 border border-gray-300 rounded-lg">
+                          Cancelar
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-700 whitespace-pre-wrap">{c.texto}</p>
+                  )}
                 </div>
-                {/* Eliminar */}
-                <button
-                  onClick={() => handleDeleteComentario(c.id)}
-                  className="p-1 text-gray-300 hover:text-red-400 rounded opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-0.5"
-                  title="Eliminar nota"
-                >
-                  <X size={13} />
-                </button>
+
+                {/* Acciones (solo si no estamos editando esta nota) */}
+                {editingComentario?.id !== c.id && (
+                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-0.5">
+                    <button
+                      onClick={() => handleStartEdit(c)}
+                      className="p-1 text-gray-300 hover:text-blue-500 rounded"
+                      title="Editar nota"
+                    >
+                      <Pencil size={13} />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteComentario(c.id)}
+                      className="p-1 text-gray-300 hover:text-red-400 rounded"
+                      title="Eliminar nota"
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -412,12 +510,14 @@ export default function PropiedadDetalle() {
 
         {/* Input nueva nota */}
         <div className="flex gap-3 items-start">
-          <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 text-xs font-bold shrink-0 mt-0.5">
-            {currentUser ? avatarInitials(currentUser.user_metadata?.full_name || currentUser.email) : <User2 size={14} />}
+          <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 shrink-0 mt-0.5">
+            {currentUser
+              ? <span className="text-xs font-bold">{avatarInitials(currentUser.user_metadata?.full_name || currentUser.email)}</span>
+              : <User2 size={14} />
+            }
           </div>
           <div className="flex-1 relative">
             <textarea
-              ref={textareaRef}
               rows={2}
               value={nuevoComentario}
               onChange={e => setNuevoComentario(e.target.value)}
@@ -493,6 +593,15 @@ export default function PropiedadDetalle() {
           <button className="absolute top-4 right-4 text-white hover:text-gray-300"><X size={28} /></button>
         </div>
       )}
+
+      {/* ── Confirm dialog ── */}
+      <ConfirmDialog
+        open={!!confirm}
+        title={confirm?.title}
+        message={confirm?.message}
+        onConfirm={confirm?.onConfirm}
+        onCancel={() => setConfirm(null)}
+      />
     </div>
   );
 }
