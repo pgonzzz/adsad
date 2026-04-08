@@ -18,13 +18,29 @@ router.get('/', async (req, res) => {
 });
 
 router.get('/:id', async (req, res) => {
-  const { data, error } = await supabase
+  const { data: propiedad, error } = await supabase
     .from('propiedades')
-    .select('*, proveedores(id, nombre, tipo)')
+    .select('*, proveedores(id, nombre, tipo, telefono, email)')
     .eq('id', req.params.id)
     .single();
   if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+
+  // Peticiones activas que encajan con esta propiedad
+  const { data: todasPeticiones } = await supabase
+    .from('peticiones')
+    .select('*, inversores(id, nombre, apellidos, pipeline, telefono, email)')
+    .eq('estado', 'activa');
+
+  const peticionesMatch = (todasPeticiones || []).filter(p => {
+    if (p.tipos_propiedad?.length && !p.tipos_propiedad.includes(propiedad.tipo)) return false;
+    if (p.precio_min && propiedad.precio && propiedad.precio < p.precio_min) return false;
+    if (p.precio_max && propiedad.precio && propiedad.precio > p.precio_max) return false;
+    if (p.provincia && propiedad.provincia && p.provincia !== propiedad.provincia) return false;
+    if (p.necesita_financiacion && !propiedad.acepta_financiacion) return false;
+    return true;
+  });
+
+  res.json({ ...propiedad, peticionesMatch });
 });
 
 router.post('/', async (req, res) => {

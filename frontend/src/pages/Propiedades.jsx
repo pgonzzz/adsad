@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { propiedadesApi, proveedoresApi } from '../api';
 import Modal from '../components/Modal';
 import Badge from '../components/Badge';
@@ -21,6 +22,7 @@ function fmt(n) {
 }
 
 export default function Propiedades() {
+  const navigate = useNavigate();
   const [propiedades, setPropiedades] = useState([]);
   const [proveedores, setProveedores] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -262,7 +264,7 @@ export default function Propiedades() {
               ) : filtered.length === 0 ? (
                 <tr><td colSpan={9} className="text-center py-10 text-gray-400">No hay propiedades</td></tr>
               ) : filtered.map(p => (
-                <tr key={p.id} className="border-b last:border-0 hover:bg-gray-50">
+                <tr key={p.id} className="border-b last:border-0 hover:bg-gray-50 cursor-pointer" onClick={() => navigate(`/propiedades/${p.id}`)}>
                   <td className="px-4 py-3">
                     {p.fotos?.length > 0 ? (
                       <img
@@ -292,7 +294,7 @@ export default function Propiedades() {
                       <span>{p.proveedores.nombre} <Badge value={p.proveedores.tipo} /></span>
                     ) : '—'}
                   </td>
-                  <td className="px-4 py-3 text-right space-x-3">
+                  <td className="px-4 py-3 text-right space-x-3" onClick={e => e.stopPropagation()}>
                     <button onClick={() => openEdit(p)} className="text-gray-400 hover:text-gray-700">Editar</button>
                     <button onClick={() => handleDelete(p.id)} className="text-red-400 hover:text-red-600">Eliminar</button>
                   </td>

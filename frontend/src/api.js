@@ -43,6 +43,7 @@ export const proveedoresApi = {
 
 export const propiedadesApi = {
   getAll: (params) => get('/propiedades', params),
+  getById: (id) => get(`/propiedades/${id}`),
   create: (data) => post('/propiedades', data),
   update: (id, data) => put(`/propiedades/${id}`, data),
   delete: (id) => del(`/propiedades/${id}`),
