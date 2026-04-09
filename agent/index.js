@@ -87,20 +87,37 @@ async function handleScrapeTask(tarea) {
   let error = null;
 
   try {
+    // Callback de streaming: enviar cada lead al CRM en cuanto se scrapea
+    const onLead = async (lead) => {
+      try {
+        await api.post('/api/captacion/agent/result', {
+          tarea_id: tarea.id,
+          tipo: 'scrape',
+          partial: true,
+          leads: [lead],
+        });
+      } catch (err) {
+        console.warn('[Task] Error enviando lead parcial:', err.message);
+      }
+    };
+
     leads = await scrapeIdealista({
+      url_inicial: payload.url_inicial,
       poblacion: payload.poblacion,
       provincia: payload.provincia,
       tipo: payload.tipo,
       precio_min: payload.precio_min,
       precio_max: payload.precio_max,
       maxPages: payload.max_paginas || 3,
-    });
+    }, onLead);
   } catch (err) {
     error = err.message;
     console.error('[Task] Error en scraping:', err.message);
   }
 
-  // Reportar resultado al backend
+  // Reportar resultado final (marca la tarea como completada).
+  // Los leads ya se han ido insertando uno a uno via partial=true,
+  // así que NO los re-enviamos aquí para evitar dedupe innecesario.
   await api.post('/api/captacion/agent/result', {
     tarea_id: tarea.id,
     tipo: 'scrape',
@@ -108,10 +125,10 @@ async function handleScrapeTask(tarea) {
       total: leads.length,
       error: error || null,
     },
-    leads,
+    leads: [],
   });
 
-  console.log(`[Task] Scraping completado. ${leads.length} leads enviados al backend.`);
+  console.log(`[Task] Scraping completado. ${leads.length} leads enviados al backend en streaming.`);
 }
 
 // ─── Ejecutar tarea de envío WhatsApp ─────────────────────────────────────────

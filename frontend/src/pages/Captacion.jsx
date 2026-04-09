@@ -145,17 +145,29 @@ function AgentStatusBar({ status, onRefresh }) {
 function QRPanel({ qrCode }) {
   if (!qrCode) return null;
   return (
-    <div className="mb-4 p-4 bg-orange-50 border border-orange-200 rounded-xl flex items-start gap-4">
+    <div className="mb-4 p-5 bg-orange-50 border-2 border-orange-400 rounded-xl flex items-start gap-5 shadow-lg">
       <div className="shrink-0">
-        <img src={qrCode} alt="WhatsApp QR" className="w-32 h-32 rounded-lg border border-orange-300" />
+        <img
+          src={qrCode}
+          alt="WhatsApp QR"
+          className="w-44 h-44 rounded-lg border-2 border-orange-300 bg-white p-2"
+        />
       </div>
-      <div>
-        <p className="font-semibold text-orange-800 mb-1 flex items-center gap-2">
-          <Smartphone size={16} /> Vincula WhatsApp
+      <div className="flex-1">
+        <p className="font-bold text-orange-900 mb-2 flex items-center gap-2 text-lg">
+          <Smartphone size={20} /> WhatsApp desconectado — Acción requerida
         </p>
-        <p className="text-sm text-orange-700">
-          Abre WhatsApp en tu móvil, ve a <strong>Dispositivos vinculados</strong> y escanea este QR
-          para que el agente pueda enviar mensajes.
+        <p className="text-sm text-orange-800 mb-3">
+          Para que el agente pueda seguir contactando a los leads, <strong>escanea este QR</strong> con tu WhatsApp desde el móvil:
+        </p>
+        <ol className="text-sm text-orange-800 list-decimal list-inside space-y-1 ml-1">
+          <li>Abre <strong>WhatsApp</strong> en tu móvil.</li>
+          <li>Pulsa los <strong>tres puntos (⋮)</strong> arriba a la derecha → <strong>Dispositivos vinculados</strong>.</li>
+          <li>Pulsa <strong>Vincular un dispositivo</strong>.</li>
+          <li>Apunta la cámara del móvil a este QR.</li>
+        </ol>
+        <p className="text-xs text-orange-600 mt-3 italic">
+          Este QR se refresca automáticamente cada pocos segundos. Si no lo escaneas a tiempo, espera a que aparezca uno nuevo.
         </p>
       </div>
     </div>
@@ -858,6 +870,18 @@ function CampanaDetail({ campana, onBack, onRefresh, onEditLead, onDeleteLead, a
   }, [campana.id]);
 
   useEffect(loadLeads, [loadLeads]);
+
+  // Auto-refresh de leads cada 5 segundos mientras la vista está abierta.
+  // Esto hace que los leads aparezcan en tiempo real a medida que el
+  // agente los va scrapeando y enviándolos via partial result.
+  useEffect(() => {
+    const interval = setInterval(() => {
+      captacionApi.getLeads({ campana_id: campana.id })
+        .then(setLeads)
+        .catch(() => { /* silenciar errores del polling */ });
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [campana.id]);
 
   const stats = {
     total: leads.length,

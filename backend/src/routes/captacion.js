@@ -288,26 +288,34 @@ router.get('/agent/poll', async (req, res) => {
   res.json({ task: data });
 });
 
-// POST /captacion/agent/result — el agente publica el resultado de una tarea
+// POST /captacion/agent/result — el agente publica el resultado de una tarea.
+// Soporta dos modos:
+//   - partial=true: inserta los leads pero NO marca la tarea como completada.
+//     El agente lo usa durante el scraping para hacer streaming de leads al CRM.
+//   - partial=false (o ausente): marca la tarea como completada. Es el envío
+//     final que cierra la tarea.
 router.post('/agent/result', async (req, res) => {
   if (!checkAgentKey(req, res)) return;
 
-  const { tarea_id, tipo, resultado, leads } = req.body;
+  const { tarea_id, tipo, resultado, leads, partial } = req.body;
+  const isPartial = !!partial;
 
-  // Marcar tarea completada
-  const { error: tareaError } = await supabase
-    .from('captacion_tareas')
-    .update({
-      estado: 'completada',
-      resultado,
-      completed_at: new Date().toISOString(),
-    })
-    .eq('id', tarea_id);
+  // Solo marcar la tarea como completada si es el envío final
+  if (!isPartial) {
+    const { error: tareaError } = await supabase
+      .from('captacion_tareas')
+      .update({
+        estado: 'completada',
+        resultado,
+        completed_at: new Date().toISOString(),
+      })
+      .eq('id', tarea_id);
 
-  if (tareaError) return res.status(500).json({ error: tareaError.message });
+    if (tareaError) return res.status(500).json({ error: tareaError.message });
+  }
 
-  // Si es una tarea de scraping, insertar los leads devueltos
-  if (tipo === 'scrape') {
+  // Insertar leads (tanto en modo partial como final)
+  if (tipo === 'scrape' && Array.isArray(leads) && leads.length > 0) {
     // Obtener campaña para contexto
     const { data: tarea } = await supabase
       .from('captacion_tareas')
@@ -318,34 +326,41 @@ router.post('/agent/result', async (req, res) => {
     const campana_id = tarea?.payload?.campana_id;
 
     if (campana_id) {
-      // Marcar scrape_ultimo_at para que el scheduler respete el intervalo
-      // tras cualquier scrape (manual o automático)
-      await supabase
-        .from('captacion_campanas')
-        .update({ scrape_ultimo_at: new Date().toISOString() })
-        .eq('id', campana_id);
+      // Deduplicar por url_anuncio ya existente en la campaña
+      const { data: existing } = await supabase
+        .from('captacion_leads')
+        .select('url_anuncio')
+        .eq('campana_id', campana_id);
 
-      if (Array.isArray(leads) && leads.length > 0) {
-        // Deduplicar
-        const { data: existing } = await supabase
-          .from('captacion_leads')
-          .select('url_anuncio')
-          .eq('campana_id', campana_id);
+      const existingUrls = new Set((existing || []).map(l => l.url_anuncio).filter(Boolean));
+      const newLeads = leads
+        .filter(l => !l.url_anuncio || !existingUrls.has(l.url_anuncio))
+        .map(l => ({ ...l, campana_id }));
 
-        const existingUrls = new Set((existing || []).map(l => l.url_anuncio).filter(Boolean));
-        const newLeads = leads
-          .filter(l => !l.url_anuncio || !existingUrls.has(l.url_anuncio))
-          .map(l => ({ ...l, campana_id }));
-
-        if (newLeads.length > 0) {
-          await supabase.from('captacion_leads').insert(newLeads);
-        }
+      if (newLeads.length > 0) {
+        await supabase.from('captacion_leads').insert(newLeads);
       }
     }
   }
 
+  // Marcar scrape_ultimo_at solo en el envío final (evita marcar en cada partial)
+  if (tipo === 'scrape' && !isPartial) {
+    const { data: tarea } = await supabase
+      .from('captacion_tareas')
+      .select('payload')
+      .eq('id', tarea_id)
+      .single();
+    const campana_id = tarea?.payload?.campana_id;
+    if (campana_id) {
+      await supabase
+        .from('captacion_campanas')
+        .update({ scrape_ultimo_at: new Date().toISOString() })
+        .eq('id', campana_id);
+    }
+  }
+
   // Si es una tarea de whatsapp, actualizar estado de leads enviados
-  if ((tipo === 'whatsapp_send' || tipo === 'whatsapp_followup') && resultado?.enviados) {
+  if (!isPartial && (tipo === 'whatsapp_send' || tipo === 'whatsapp_followup') && resultado?.enviados) {
     const tipo_envio = tipo === 'whatsapp_followup' ? 'followup' : 'inicial';
     for (const leadId of resultado.enviados) {
       await supabase

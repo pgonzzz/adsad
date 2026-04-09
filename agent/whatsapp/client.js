@@ -58,10 +58,25 @@ function initWhatsApp(onQR, onReady, onMessage) {
     if (onReady) onReady();
   });
 
-  // Desconexión
+  // Desconexión — WhatsApp se ha desvinculado del móvil o la sesión expiró.
+  // La forma más robusta de recuperarse es salir del proceso y dejar que
+  // launchd reinicie el agente limpio. Al arrancar de nuevo, whatsapp-web.js
+  // detecta la sesión inválida y genera un QR nuevo que aparece en el CRM.
   client.on('disconnected', (reason) => {
     connected = false;
-    console.warn('[WhatsApp] Desconectado:', reason);
+    currentQR = null;
+    console.error('[WhatsApp] Desconectado:', reason);
+    console.error('[WhatsApp] El proceso se va a cerrar en 5s para que launchd reinicie el agente limpio...');
+    setTimeout(() => process.exit(1), 5000);
+  });
+
+  // Fallo de autenticación — sesión corrupta o inválida
+  client.on('auth_failure', (msg) => {
+    connected = false;
+    currentQR = null;
+    console.error('[WhatsApp] Fallo de autenticación:', msg);
+    console.error('[WhatsApp] El proceso se va a cerrar en 5s para que launchd reinicie el agente limpio...');
+    setTimeout(() => process.exit(1), 5000);
   });
 
   // Mensajes entrantes — detectar respuestas de leads

@@ -181,18 +181,22 @@ async function extractListingsFromPage(page, precioMin, precioMax) {
 /**
  * Scrape Idealista.
  * Se conecta al Chrome ya abierto por el usuario en el puerto 9222.
- * El usuario debe tener abierta la página de resultados de Idealista.
+ * El usuario debe tener abierta la página de resultados de Idealista, o
+ * bien haber rellenado params.url_inicial en la campaña.
  *
  * @param {Object} params
+ * @param {string} params.url_inicial — URL de Idealista pegada en la campaña (prioritaria)
  * @param {string} params.poblacion
  * @param {string} params.provincia
  * @param {string} params.tipo
  * @param {number} params.precio_min
  * @param {number} params.precio_max
  * @param {number} params.maxPages
+ * @param {(lead: object) => Promise<void>} [onLead] — callback opcional,
+ *        llamado cada vez que se scrapea un nuevo lead (para streaming al CRM)
  * @returns {Promise<Array>}
  */
-async function scrapeIdealista(params) {
+async function scrapeIdealista(params, onLead) {
   const maxPages = params.maxPages || 5;
   const leads = [];
 
@@ -305,7 +309,7 @@ async function scrapeIdealista(params) {
 
           await detailPage.close();
 
-          leads.push({
+          const lead = {
             titulo: listing.titulo,
             precio: listing.precio,
             url_anuncio: listing.url,
@@ -316,13 +320,19 @@ async function scrapeIdealista(params) {
             provincia: params.provincia || null,
             tipo: params.tipo || 'piso',
             portal: 'idealista',
-          });
+          };
+          leads.push(lead);
+
+          // Streaming: enviar al CRM en cuanto se tiene el lead (no al final)
+          if (onLead) {
+            try { await onLead(lead); } catch (e) { /* no bloquear el scraping */ }
+          }
 
           await sleep(2000, 4000);
 
         } catch (err) {
           console.warn('[Scraper] Error procesando anuncio:', err.message);
-          leads.push({
+          const lead = {
             titulo: listing.titulo,
             precio: listing.precio,
             url_anuncio: listing.url,
@@ -333,7 +343,11 @@ async function scrapeIdealista(params) {
             provincia: params.provincia || null,
             tipo: params.tipo || 'piso',
             portal: 'idealista',
-          });
+          };
+          leads.push(lead);
+          if (onLead) {
+            try { await onLead(lead); } catch (e) { /* ignore */ }
+          }
         }
       }
 
