@@ -41,6 +41,7 @@ const ESTADO_LEAD_LABELS = {
 const emptyCampana = {
   nombre: '',
   portal: 'idealista',
+  url_inicial: '',
   provincia: '',
   poblacion: '',
   tipo: 'piso',
@@ -129,6 +130,7 @@ function CampanaModal({ open, onClose, editing, onSaved, onSaveAndScrape }) {
       setForm(editing ? {
         nombre: editing.nombre || '',
         portal: editing.portal || 'idealista',
+        url_inicial: editing.url_inicial || '',
         provincia: editing.provincia || '',
         poblacion: editing.poblacion || '',
         tipo: editing.tipo || 'piso',
@@ -206,6 +208,28 @@ function CampanaModal({ open, onClose, editing, onSaved, onSaveAndScrape }) {
               </option>
             ))}
           </select>
+        </div>
+
+        {/* URL Idealista directa (recomendado) */}
+        <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+          <label className="block text-sm font-semibold text-blue-900 mb-1">
+            URL de Idealista <span className="text-blue-600 font-normal">(recomendado)</span>
+          </label>
+          <p className="text-xs text-blue-700 mb-2">
+            Abre Idealista en tu navegador, filtra la búsqueda que quieras (ubicación, tipo, precios,
+            estado de obra, m², etc.) y pega aquí la URL. Es la forma más fiable: evita que el sistema
+            abra una página incorrecta por homónimos de ciudad.
+          </p>
+          <input
+            type="url"
+            className="w-full border border-blue-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
+            value={form.url_inicial}
+            onChange={e => set('url_inicial', e.target.value)}
+            placeholder="https://www.idealista.com/venta-viviendas/valencia-valencia/"
+          />
+          {form.url_inicial && !form.url_inicial.includes('idealista.com') && (
+            <p className="text-xs text-red-600 mt-1">⚠ La URL no parece de idealista.com</p>
+          )}
         </div>
 
         {/* Provincia / Población */}
@@ -742,6 +766,7 @@ function CampanaDetail({ campana, onBack, onRefresh, onEditLead, onDeleteLead, a
         tipo: 'scrape',
         payload: {
           campana_id: campana.id,
+          url_inicial: campana.url_inicial || null,
           poblacion: campana.poblacion,
           provincia: campana.provincia,
           tipo: campana.tipo,
@@ -965,6 +990,7 @@ export default function Captacion() {
         tipo: 'scrape',
         payload: {
           campana_id: campana.id,
+          url_inicial: campana.url_inicial || null,
           poblacion: campana.poblacion,
           provincia: campana.provincia,
           tipo: campana.tipo,

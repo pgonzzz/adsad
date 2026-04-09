@@ -18,21 +18,18 @@ function sleep(min = 1000, max = 3000) {
   return new Promise(r => setTimeout(r, ms));
 }
 
-/** Construye la URL de búsqueda de Idealista */
+/**
+ * Construye un fallback de URL de búsqueda de Idealista.
+ *
+ * IMPORTANTE: esto es solo un fallback de último recurso. Idealista tiene
+ * slugs muy específicos (ej. "alacant" en vez de "alicante", "madrid-madrid"
+ * en vez de solo "madrid" según el caso) y muchas ciudades comparten nombre
+ * con barrios de Madrid o Barcelona. Para resultados fiables se debe usar
+ * el campo `url_inicial` de la campaña, que el usuario pega directamente
+ * desde su navegador tras filtrar la búsqueda en idealista.com.
+ */
 function buildSearchUrl(params) {
-  const { poblacion, provincia, tipo = 'piso' } = params;
-
-  // Normalizar el tipo al formato de Idealista
-  const tipoMap = {
-    piso: 'pisos',
-    casa: 'casas',
-    local: 'locales-comerciales',
-    nave: 'naves-almacenes',
-    solar: 'terrenos',
-    edificio: 'edificios',
-    otro: 'otros-inmuebles',
-  };
-  const tipoUrl = tipoMap[tipo] || 'pisos';
+  const { poblacion, provincia } = params;
 
   // Normalizar la ubicación: minúsculas, sin tildes, espacios → guiones
   function normalizeLocation(text) {
@@ -45,10 +42,49 @@ function buildSearchUrl(params) {
       .replace(/[^a-z0-9-]/g, '');
   }
 
-  // Preferir población si está disponible, sino provincia
-  const location = normalizeLocation(poblacion || provincia || 'madrid');
+  const pob = normalizeLocation(poblacion);
+  const prov = normalizeLocation(provincia);
 
-  return `https://www.idealista.com/venta-${tipoUrl}/${location}/`;
+  // Patrón habitual de Idealista: venta-viviendas/<municipio>-<provincia>/
+  // Usamos "venta-viviendas" (todas las viviendas) en vez de "venta-pisos"
+  // porque es más general y evita mismatches cuando el anuncio es de chalets.
+  let slug;
+  if (pob && prov) slug = `${pob}-${prov}`;
+  else if (pob) slug = pob;
+  else if (prov) slug = `${prov}-provincia`; // agregador de provincia completa
+  else slug = 'madrid';
+
+  return `https://www.idealista.com/venta-viviendas/${slug}/`;
+}
+
+/** Valida que una URL sea realmente de idealista.com */
+function isValidIdealistaUrl(url) {
+  if (!url || typeof url !== 'string') return false;
+  try {
+    const u = new URL(url);
+    return u.hostname.endsWith('idealista.com');
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Compone la URL para la página N dada una URL base de Idealista.
+ * Idealista usa el formato `pagina-N.htm` anexado al path final.
+ */
+function pageUrlFromBase(baseUrl, n) {
+  if (n <= 1) return baseUrl;
+  // Quitar query y fragment para construir, luego re-adjuntarlos
+  let u;
+  try {
+    u = new URL(baseUrl);
+  } catch {
+    return baseUrl;
+  }
+  let path = u.pathname;
+  if (!path.endsWith('/')) path += '/';
+  u.pathname = `${path}pagina-${n}.htm`;
+  return u.toString();
 }
 
 /** Limpia un precio extraído del DOM */
@@ -190,28 +226,69 @@ async function scrapeIdealista(params) {
       '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     );
 
-    // Ir a la URL de búsqueda
-    const baseUrl = buildSearchUrl(params);
-    console.log('[Scraper] URL base:', baseUrl);
+    // ─── Elegir URL base ──────────────────────────────────────────────────
+    // Preferir `url_inicial` pegada por el usuario. Si no, construir una
+    // con el fallback a partir de poblacion/provincia.
+    let baseUrl;
+    if (isValidIdealistaUrl(params.url_inicial)) {
+      baseUrl = params.url_inicial;
+      console.log('[Scraper] Usando url_inicial de la campaña:', baseUrl);
+    } else {
+      baseUrl = buildSearchUrl(params);
+      console.log('[Scraper] url_inicial no definida, usando fallback:', baseUrl);
+      if (params.url_inicial) {
+        console.warn('[Scraper] url_inicial ignorada por no ser de idealista.com:', params.url_inicial);
+      }
+    }
 
     for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
-      const url = pageNum === 1 ? baseUrl : `${baseUrl}pagina-${pageNum}.htm`;
+      const url = pageUrlFromBase(baseUrl, pageNum);
       console.log(`[Scraper] Scrapeando página ${pageNum}:`, url);
 
       try {
         await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
         await sleep(2000, 4000);
 
+        // ─── Chequeo de sanidad: título y URL real tras posibles redirects ─
+        const finalUrl = page.url();
+        const pageTitle = await page.title();
+        console.log(`[Scraper] Página cargada — título: "${pageTitle}" · url: ${finalUrl}`);
+
         // Verificar si hay CAPTCHA (Idealista usa Cloudflare o su propio sistema)
         const isCaptcha = await page.evaluate(() => {
-          return document.title.toLowerCase().includes('captcha') ||
-                 document.title.toLowerCase().includes('verificación') ||
-                 document.body.innerText.includes('robot');
+          const title = (document.title || '').toLowerCase();
+          const body = (document.body?.innerText || '').toLowerCase();
+          return title.includes('captcha')
+              || title.includes('verificación')
+              || title.includes('un momento')
+              || body.includes('no soy un robot')
+              || body.includes('verificar que eres humano')
+              || !!document.querySelector('iframe[src*="captcha"], iframe[src*="recaptcha"], iframe[src*="challenges.cloudflare"]');
         });
 
         if (isCaptcha) {
-          console.warn('[Scraper] CAPTCHA detectado en página', pageNum, '— esperando 30s para resolución manual...');
-          await sleep(30000, 31000);
+          console.warn('[Scraper] CAPTCHA/verificación detectado en página', pageNum, '— esperando 60s para resolución manual en la ventana visible...');
+          await sleep(60000, 61000);
+        }
+
+        // ─── Detectar redirect a página de error/404/buscador genérico ────
+        // Si tras navegar estamos en una URL distinta y claramente genérica
+        // (ej. la home de idealista, o una búsqueda sin filtros), avisar.
+        const isLikelyWrongPage = await page.evaluate(() => {
+          const body = (document.body?.innerText || '').toLowerCase();
+          return body.includes('no hemos encontrado ningún anuncio')
+              || body.includes('no se han encontrado inmuebles')
+              || body.includes('página no encontrada')
+              || body.includes('la página que buscas no existe');
+        });
+
+        if (isLikelyWrongPage) {
+          console.warn(`[Scraper] Página ${pageNum} parece no tener resultados (URL final: ${finalUrl}). Título: "${pageTitle}".`);
+          if (pageNum === 1) {
+            // Abortar pronto: mejor fallar rápido que procesar basura.
+            throw new Error(`Idealista no devolvió resultados para la URL: ${url}. Pega una URL directa de idealista.com en la campaña (campo "URL de Idealista").`);
+          }
+          break;
         }
 
         // Extraer listado de anuncios
@@ -249,6 +326,16 @@ async function scrapeIdealista(params) {
         }, params.precio_min || 0, params.precio_max || Infinity);
 
         console.log(`[Scraper] Encontrados ${listings.length} anuncios en página ${pageNum}`);
+
+        // Si en la página 1 no hay ningún listing, probablemente los selectores
+        // han cambiado o Idealista devolvió otra cosa. Abortar con un mensaje
+        // claro para que el backend muestre el error en el CRM.
+        if (pageNum === 1 && listings.length === 0) {
+          throw new Error(
+            `Página 1 sin anuncios detectables. URL final: ${finalUrl} · Título: "${pageTitle}". ` +
+            `Verifica que la URL de Idealista sea correcta, o revisa si los selectores del scraper han quedado obsoletos.`
+          );
+        }
 
         // Para cada anuncio, abrir la página y extraer más info
         for (const listing of listings) {

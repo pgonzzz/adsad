@@ -65,6 +65,7 @@ async function checkScrapeAuto(campana) {
 
   const payload = {
     campana_id: campana.id,
+    url_inicial: campana.url_inicial || null,
     poblacion: campana.poblacion,
     provincia: campana.provincia,
     tipo: campana.tipo,
