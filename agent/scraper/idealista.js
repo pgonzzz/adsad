@@ -94,98 +94,149 @@ function cleanPrice(text) {
   return num ? parseInt(num, 10) : null;
 }
 
-// ─── Extracción de teléfono en página de detalle ──────────────────────────────
+// ─── Regex de teléfono español ────────────────────────────────────────────────
+// Acepta formatos con/sin espacios, guiones, y prefijo +34 opcional.
+// Ej: 612345678, 612 34 56 78, 612-345-678, +34 612 345 678, 34 612345678
+const SPANISH_PHONE_RE = /(?:\+?34[\s-]?)?[679]\d{2}[\s-]?\d{2,3}[\s-]?\d{2,3}[\s-]?\d{0,2}/;
 
-async function extractPhone(page) {
-  try {
-    // Buscar botón "Ver teléfono" / "Mostrar teléfono"
-    const btnSelectors = [
-      'button.contact-phone-button',
-      'button[class*="phone"]',
-      'a[class*="phone"]',
-      '.phone-btn',
-      '[data-testid="phone-button"]',
-      'button:has-text("Ver teléfono")',
-      'span.icon-phone',
-    ];
-
-    let clicked = false;
-    for (const sel of btnSelectors) {
-      try {
-        const btn = await page.$(sel);
-        if (btn) {
-          await btn.click();
-          await sleep(1000, 2000);
-          clicked = true;
-          break;
-        }
-      } catch { /* ignorar */ }
-    }
-
-    // Si no encontramos botón, intentar extraer número directamente
-    const phoneSelectors = [
-      '.contact-phone-number',
-      '.phone-number',
-      '[class*="phone-number"]',
-      '[data-testid="phone-number"]',
-      '.user-contact-phone',
-    ];
-
-    for (const sel of phoneSelectors) {
-      try {
-        const el = await page.$(sel);
-        if (el) {
-          const text = await el.evaluate(e => e.textContent.trim());
-          const match = text.match(/[679]\d{8}/);
-          if (match) return match[0];
-        }
-      } catch { /* ignorar */ }
-    }
-
-    // Fallback: buscar en todo el texto de la página
-    const pageText = await page.evaluate(() => document.body.innerText);
-    const match = pageText.match(/(?:6|7)\d{8}/);
-    return match ? match[0] : null;
-
-  } catch (err) {
-    console.warn('[Scraper] Error extrayendo teléfono:', err.message);
-    return null;
-  }
+/** Extrae y normaliza un teléfono español de un string arbitrario. */
+function extractSpanishPhone(text) {
+  if (!text) return null;
+  const match = String(text).match(SPANISH_PHONE_RE);
+  if (!match) return null;
+  const clean = match[0].replace(/[\s-]/g, '').replace(/^\+?34/, '');
+  return /^[679]\d{8}$/.test(clean) ? clean : null;
 }
 
-// ─── Extracción de datos del vendedor ─────────────────────────────────────────
-
-async function extractSellerInfo(page) {
-  let nombre_vendedor = null;
-  let es_particular = true;
-
+// ─── Cerrar modal abierto si lo hay ───────────────────────────────────────────
+async function closeOpenModal(page) {
   try {
-    // Nombre del vendedor/agencia
-    const sellerSelectors = [
-      '.professional-name',
-      '.advertiser-name',
-      '[class*="advertiser"]',
-      '.contact-info-agent',
-      '.user-info-name',
-    ];
-
-    for (const sel of sellerSelectors) {
-      try {
-        const el = await page.$(sel);
-        if (el) {
-          nombre_vendedor = await el.evaluate(e => e.textContent.trim());
-          break;
-        }
-      } catch { /* ignorar */ }
-    }
-
-    // Detectar si es agencia (no particular)
-    const bodyText = await page.evaluate(() => document.body.innerText.toLowerCase());
-    es_particular = !bodyText.includes('agencia') && !bodyText.includes('inmobiliaria') && !bodyText.includes('promotor');
-
+    const hasModal = await page.evaluate(() => {
+      return !!document.querySelector('[role="dialog"]:not([aria-hidden="true"]), .modal.show, dialog[open]');
+    });
+    if (!hasModal) return;
+    await page.keyboard.press('Escape');
+    await sleep(300, 600);
   } catch { /* ignorar */ }
+}
 
-  return { nombre_vendedor, es_particular };
+// ─── Revelar teléfono clicando en "Ver teléfono" dentro de una tarjeta ────────
+/**
+ * Busca el botón "Ver teléfono" DENTRO de un <article> concreto del listado,
+ * lo clica y devuelve el teléfono revelado. Mucho más rápido que abrir la
+ * ficha del anuncio entera.
+ *
+ * Estrategia de búsqueda (en orden):
+ *   1. Cualquier botón/enlace cuyo innerText contenga "ver teléfono"
+ *   2. Elementos con clases que incluyan "phone"
+ *   3. Iconos con clase "icon-phone"
+ *
+ * Tras clicar, busca el número en:
+ *   1. El texto del propio article (reveal inline)
+ *   2. Un modal/dialog global abierto
+ *   3. Un enlace `tel:` en la página
+ */
+async function revealPhoneInArticle(page, article) {
+  // Scroll al article para que sea clicable
+  try {
+    await article.evaluate(el => el.scrollIntoView({ block: 'center' }));
+  } catch { /* stale handle */ return null; }
+  await sleep(250, 550);
+
+  // Buscar y clicar el botón dentro del article
+  const clicked = await article.evaluate(el => {
+    // 1. Buscar por texto
+    const candidates = el.querySelectorAll('button, a, [role="button"]');
+    for (const c of candidates) {
+      const txt = ((c.innerText || c.textContent || '') + ' ' + (c.getAttribute('aria-label') || '')).toLowerCase();
+      if (txt.includes('ver teléfono') || txt.includes('ver telefono') || txt.includes('mostrar teléfono') || txt.includes('mostrar telefono')) {
+        c.click();
+        return 'text-match';
+      }
+    }
+    // 2. Buscar por clase "phone"
+    const byClass = el.querySelector('button[class*="phone"]:not([disabled]), a[class*="phone"]');
+    if (byClass) { byClass.click(); return 'class-phone'; }
+    // 3. Buscar contenedor del icono de teléfono y clicar el botón padre
+    const icon = el.querySelector('[class*="icon-phone"], svg[class*="phone"]');
+    if (icon) {
+      const btn = icon.closest('button, a, [role="button"]');
+      if (btn) { btn.click(); return 'icon-phone'; }
+    }
+    return null;
+  });
+
+  if (!clicked) return null;
+
+  // Esperar a que Idealista revele el número (inline o modal)
+  await sleep(700, 1400);
+
+  // 1. Buscar número en el texto del propio article (reveal inline)
+  let phone = await article.evaluate(el => {
+    const re = /(?:\+?34[\s-]?)?[679]\d{2}[\s-]?\d{2,3}[\s-]?\d{2,3}[\s-]?\d{0,2}/;
+    const txt = el.innerText || '';
+    const match = txt.match(re);
+    if (match) return match[0];
+    // También mirar atributos href tel: dentro del article
+    const tel = el.querySelector('a[href^="tel:"]');
+    return tel ? tel.href.replace('tel:', '') : null;
+  }).then(extractSpanishPhone).catch(() => null);
+
+  if (phone) return phone;
+
+  // 2. Buscar en un modal/dialog global
+  phone = await page.evaluate(() => {
+    const dialog = document.querySelector('[role="dialog"]:not([aria-hidden="true"]), .modal.show, dialog[open]');
+    if (!dialog) return null;
+    const tel = dialog.querySelector('a[href^="tel:"]');
+    if (tel) return tel.href.replace('tel:', '');
+    return dialog.innerText || null;
+  }).then(extractSpanishPhone).catch(() => null);
+
+  if (phone) {
+    await closeOpenModal(page);
+    return phone;
+  }
+
+  // 3. Buscar cualquier tel: link recién añadido a la página
+  phone = await page.evaluate(() => {
+    const tel = document.querySelector('a[href^="tel:"]');
+    return tel ? tel.href.replace('tel:', '') : null;
+  }).then(extractSpanishPhone).catch(() => null);
+
+  await closeOpenModal(page);
+  return phone || null;
+}
+
+// ─── Extracción del vendedor directamente desde la tarjeta del listado ────────
+async function extractSellerFromArticle(article) {
+  try {
+    return await article.evaluate(el => {
+      // Nombre/logo de la agencia — suele estar en una imagen con alt
+      const logoImg = el.querySelector(
+        'picture[class*="logo"] img, [class*="logo-branding"] img, [class*="branding"] img, img[class*="logo"]'
+      );
+      const nombreLogo = logoImg ? (logoImg.alt || '').trim() : '';
+
+      // Texto de anunciante
+      const nameEl = el.querySelector(
+        '[class*="advertiser"], [class*="professional"], [class*="branding-name"], .item-branding'
+      );
+      const nombreTexto = nameEl ? (nameEl.innerText || '').trim() : '';
+
+      const nombre_vendedor = (nombreLogo || nombreTexto || '').trim() || null;
+
+      // Hay branding de agencia → no es particular
+      const hasBranding = !!(
+        logoImg ||
+        el.querySelector('[class*="branding"], [class*="professional"], [class*="agency"]')
+      );
+
+      return { nombre_vendedor, es_particular: !hasBranding };
+    });
+  } catch {
+    return { nombre_vendedor: null, es_particular: true };
+  }
 }
 
 // ─── Función principal ────────────────────────────────────────────────────────
@@ -291,78 +342,65 @@ async function scrapeIdealista(params) {
           break;
         }
 
-        // Extraer listado de anuncios
-        const listings = await page.evaluate((precioMin, precioMax) => {
-          const items = [];
+        // ─── Obtener handles de los artículos del listado ─────────────────
+        const articles = await page.$$(
+          'article.item, article[class*="item"], [class*="item-info-container"]'
+        );
 
-          // Selectores para los artículos de la lista
-          const articles = document.querySelectorAll('article.item, .item-info-container, [class*="item-info"]');
-
-          articles.forEach(art => {
-            try {
-              // URL del anuncio
-              const linkEl = art.querySelector('a.item-link, a[href*="/inmueble/"]');
-              const url = linkEl ? linkEl.href : null;
-              if (!url) return;
-
-              // Título
-              const titleEl = art.querySelector('.item-title, h3.item-title, [class*="item-title"]');
-              const titulo = titleEl ? titleEl.textContent.trim() : '';
-
-              // Precio
-              const priceEl = art.querySelector('.item-price, .price-row, [class*="price"]');
-              const precioText = priceEl ? priceEl.textContent.trim() : '';
-              const precio = parseInt(precioText.replace(/[^\d]/g, ''), 10) || null;
-
-              // Filtro de precio
-              if (precioMin && precio && precio < precioMin) return;
-              if (precioMax && precio && precio > precioMax) return;
-
-              items.push({ url, titulo, precioText, precio });
-            } catch { /* ignorar */ }
-          });
-
-          return items;
-        }, params.precio_min || 0, params.precio_max || Infinity);
-
-        console.log(`[Scraper] Encontrados ${listings.length} anuncios en página ${pageNum}`);
+        console.log(`[Scraper] Encontrados ${articles.length} artículos en página ${pageNum}`);
 
         // Si en la página 1 no hay ningún listing, probablemente los selectores
         // han cambiado o Idealista devolvió otra cosa. Abortar con un mensaje
         // claro para que el backend muestre el error en el CRM.
-        if (pageNum === 1 && listings.length === 0) {
+        if (pageNum === 1 && articles.length === 0) {
           throw new Error(
             `Página 1 sin anuncios detectables. URL final: ${finalUrl} · Título: "${pageTitle}". ` +
             `Verifica que la URL de Idealista sea correcta, o revisa si los selectores del scraper han quedado obsoletos.`
           );
         }
 
-        // Para cada anuncio, abrir la página y extraer más info
-        for (const listing of listings) {
+        // ─── Procesar cada artículo: datos + clic en "Ver teléfono" ───────
+        for (let i = 0; i < articles.length; i++) {
+          const article = articles[i];
+          let basic = null;
+
           try {
-            console.log(`[Scraper] Procesando: ${listing.titulo || listing.url}`);
+            // Datos básicos desde el propio article
+            basic = await article.evaluate(el => {
+              const linkEl = el.querySelector('a.item-link, a[href*="/inmueble/"]');
+              const url = linkEl ? linkEl.href : null;
+              const titleEl = el.querySelector('.item-title, h3.item-title, [class*="item-title"]');
+              const titulo = titleEl ? (titleEl.textContent || '').trim() : '';
+              const priceEl = el.querySelector('.item-price, .price-row, [class*="price"]');
+              const precioText = priceEl ? (priceEl.textContent || '').trim() : '';
+              const precio = parseInt(precioText.replace(/[^\d]/g, ''), 10) || null;
+              return { url, titulo, precio };
+            });
 
-            const detailPage = await browser.newPage();
-            await detailPage.setUserAgent(
-              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
-              '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-            );
+            if (!basic || !basic.url) continue;
 
-            await detailPage.goto(listing.url, { waitUntil: 'networkidle2', timeout: 20000 });
-            await sleep(1500, 3000);
+            // Filtro de precio (se aplica también cuando se usa url_inicial como
+            // segunda capa de seguridad si el usuario no lo metió en Idealista)
+            if (params.precio_min && basic.precio && basic.precio < params.precio_min) continue;
+            if (params.precio_max && basic.precio && basic.precio > params.precio_max) continue;
 
-            // Extraer teléfono
-            const telefono = await extractPhone(detailPage);
+            console.log(`[Scraper] [${i + 1}/${articles.length}] ${basic.titulo || basic.url}`);
 
-            // Extraer info del vendedor
-            const { nombre_vendedor, es_particular } = await extractSellerInfo(detailPage);
+            // Vendedor/agencia desde la tarjeta
+            const { nombre_vendedor, es_particular } = await extractSellerFromArticle(article);
 
-            await detailPage.close();
+            // Clic en "Ver teléfono" dentro del article y extraer el número
+            const telefono = await revealPhoneInArticle(page, article);
+            if (telefono) {
+              console.log(`[Scraper]   ✓ Tel: ${telefono}${nombre_vendedor ? ` · ${nombre_vendedor}` : ''}`);
+            } else {
+              console.log(`[Scraper]   ✗ Sin teléfono (botón "Ver teléfono" no encontrado o reveal vacío)`);
+            }
 
             leads.push({
-              titulo: listing.titulo,
-              precio: listing.precio,
-              url_anuncio: listing.url,
+              titulo: basic.titulo,
+              precio: basic.precio,
+              url_anuncio: basic.url,
               telefono,
               nombre_vendedor,
               es_particular,
@@ -372,29 +410,33 @@ async function scrapeIdealista(params) {
               portal: 'idealista',
             });
 
-            // Pausa entre anuncios para no ser bloqueado
-            await sleep(2000, 4000);
+            // Pausa aleatoria entre reveals para no gatillar rate-limit
+            await sleep(1500, 3500);
 
           } catch (err) {
-            console.warn('[Scraper] Error procesando anuncio:', err.message);
-            // Añadir el anuncio sin teléfono para no perder datos
-            leads.push({
-              titulo: listing.titulo,
-              precio: listing.precio,
-              url_anuncio: listing.url,
-              telefono: null,
-              nombre_vendedor: null,
-              es_particular: true,
-              poblacion: params.poblacion || null,
-              provincia: params.provincia || null,
-              tipo: params.tipo || 'piso',
-              portal: 'idealista',
-            });
+            console.warn('[Scraper] Error procesando artículo:', err.message);
+            if (basic && basic.url) {
+              leads.push({
+                titulo: basic.titulo,
+                precio: basic.precio,
+                url_anuncio: basic.url,
+                telefono: null,
+                nombre_vendedor: null,
+                es_particular: true,
+                poblacion: params.poblacion || null,
+                provincia: params.provincia || null,
+                tipo: params.tipo || 'piso',
+                portal: 'idealista',
+              });
+            }
+          } finally {
+            // Liberar el handle del artículo
+            try { await article.dispose(); } catch { /* ignorar */ }
           }
         }
 
         // Si no hay anuncios, salir del loop de páginas
-        if (listings.length === 0) {
+        if (articles.length === 0) {
           console.log('[Scraper] Sin más anuncios, parando.');
           break;
         }
