@@ -71,7 +71,7 @@ async function sendHeartbeat() {
   try {
     await api.post('/api/captacion/agent/heartbeat', {
       whatsapp_connected: isConnected(),
-      qr_code: getCurrentQR() || currentQRBase64,
+      qr_code: currentQRBase64,
     });
   } catch (err) {
     console.warn('[Heartbeat] Error:', err.message);
