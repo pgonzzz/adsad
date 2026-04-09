@@ -45,8 +45,13 @@ function buildSearchUrl(params) {
       .replace(/[^a-z0-9-]/g, '');
   }
 
-  // Preferir población si está disponible, sino provincia
-  const location = normalizeLocation(poblacion || provincia || 'madrid');
+  // Combinar población y provincia cuando ambas están disponibles (ej: granollers-barcelona)
+  let location;
+  if (poblacion && provincia) {
+    location = `${normalizeLocation(poblacion)}-${normalizeLocation(provincia)}`;
+  } else {
+    location = normalizeLocation(poblacion || provincia || 'madrid');
+  }
 
   return `https://www.idealista.com/venta-${tipoUrl}/${location}/`;
 }
