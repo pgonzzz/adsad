@@ -11,6 +11,8 @@
 const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
+const net = require('net');
+const { spawn } = require('child_process');
 const { BACKEND_URL, AGENT_KEY, POLL_INTERVAL, HEARTBEAT_INTERVAL } = require('./config');
 const { scrapeIdealista } = require('./scraper/idealista');
 const { initWhatsApp, sendMessage, isConnected, getCurrentQR } = require('./whatsapp/client');
@@ -78,10 +80,79 @@ async function sendHeartbeat() {
   }
 }
 
+// ─── Chrome on-demand ─────────────────────────────────────────────────────────
+// Lanza Chrome con el puerto de debugging (9222) solo si todavía no está
+// corriendo. Así el usuario no tiene que tener Chrome abierto al iniciar el
+// Mac — solo se abre cuando hay una tarea de scraping que lo necesita. Una
+// vez abierto, se queda vivo hasta que apagues el Mac (para no tener que
+// relanzarlo en cada nueva tarea).
+
+function isPort9222Open(timeoutMs = 1000) {
+  return new Promise((resolve) => {
+    const socket = new net.Socket();
+    let done = false;
+    const finish = (val) => {
+      if (done) return;
+      done = true;
+      try { socket.destroy(); } catch {}
+      resolve(val);
+    };
+    socket.setTimeout(timeoutMs);
+    socket.once('connect', () => finish(true));
+    socket.once('error', () => finish(false));
+    socket.once('timeout', () => finish(false));
+    socket.connect(9222, '127.0.0.1');
+  });
+}
+
+async function ensureChromeRunning() {
+  // Ya corre: nada que hacer
+  if (await isPort9222Open()) {
+    console.log('[Chrome] Ya está corriendo en puerto 9222.');
+    return;
+  }
+
+  // Lanzarlo mediante el script start-chrome.sh
+  const scriptPath = path.join(__dirname, 'start-chrome.sh');
+  if (!fs.existsSync(scriptPath)) {
+    console.error('[Chrome] No encontrado:', scriptPath);
+    return;
+  }
+
+  console.log('[Chrome] No está corriendo. Lanzándolo ahora...');
+  try {
+    const child = spawn('bash', [scriptPath], {
+      detached: true,
+      stdio: 'ignore',
+    });
+    child.unref();
+  } catch (err) {
+    console.error('[Chrome] Error lanzando start-chrome.sh:', err.message);
+    return;
+  }
+
+  // Esperar a que el puerto esté listo (hasta 30s, poll cada 500ms)
+  const maxWaitMs = 30000;
+  const start = Date.now();
+  while (Date.now() - start < maxWaitMs) {
+    if (await isPort9222Open()) {
+      console.log(`[Chrome] Listo tras ${Math.round((Date.now() - start) / 1000)}s.`);
+      // Pequeño buffer adicional para que idealista.com cargue
+      await new Promise(r => setTimeout(r, 2000));
+      return;
+    }
+    await new Promise(r => setTimeout(r, 500));
+  }
+  console.warn('[Chrome] Timeout esperando a que arranque (30s). El scraper intentará conectarse igualmente.');
+}
+
 // ─── Ejecutar tarea de scraping ───────────────────────────────────────────────
 async function handleScrapeTask(tarea) {
   const payload = tarea.payload || {};
   console.log('[Task] Iniciando scraping para campaña:', payload.campana_id);
+
+  // Asegurar que Chrome está corriendo antes de lanzar el scraper
+  await ensureChromeRunning();
 
   let leads = [];
   let error = null;

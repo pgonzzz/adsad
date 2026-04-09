@@ -48,6 +48,9 @@ echo "  npm:       $NPM_BIN"
 echo "  Logs:      $LOG_DIR"
 echo "  Launchd:   $LAUNCH_DIR"
 echo ""
+echo "Nota: Chrome NO se abrirá al encender el Mac. Solo se lanza cuando"
+echo "      hay una tarea de scraping pendiente (bajo demanda)."
+echo ""
 
 # ─── Dar permisos al script de Chrome ────────────────────────────────────────
 chmod +x "$AGENT_DIR/start-chrome.sh"
@@ -56,6 +59,8 @@ chmod +x "$AGENT_DIR/start-chrome.sh"
 echo "→ Parando servicios anteriores (si los hay)..."
 launchctl unload "$AGENT_PLIST" 2>/dev/null || true
 launchctl unload "$CHROME_PLIST" 2>/dev/null || true
+# Quitar el plist antiguo de Chrome si existe (ya no lo usamos)
+rm -f "$CHROME_PLIST"
 pkill -f "node index.js" 2>/dev/null || true
 
 # ─── Crear el plist del agente ───────────────────────────────────────────────
@@ -94,33 +99,8 @@ cat > "$AGENT_PLIST" <<EOF
 </plist>
 EOF
 
-# ─── Crear el plist de Chrome ────────────────────────────────────────────────
-cat > "$CHROME_PLIST" <<EOF
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key>
-  <string>com.pisalia.chrome</string>
-  <key>ProgramArguments</key>
-  <array>
-    <string>/bin/bash</string>
-    <string>$AGENT_DIR/start-chrome.sh</string>
-  </array>
-  <key>RunAtLoad</key>
-  <true/>
-  <key>StandardOutPath</key>
-  <string>$LOG_DIR/pisalia-chrome.log</string>
-  <key>StandardErrorPath</key>
-  <string>$LOG_DIR/pisalia-chrome.log</string>
-</dict>
-</plist>
-EOF
-
-# ─── Cargar los servicios ────────────────────────────────────────────────────
-echo "→ Cargando servicios..."
-launchctl load "$CHROME_PLIST"
-sleep 3
+# ─── Cargar el servicio del agente ───────────────────────────────────────────
+echo "→ Cargando servicio del agente..."
 launchctl load "$AGENT_PLIST"
 
 echo ""
@@ -130,7 +110,11 @@ echo "════════════════════════�
 echo "  Qué pasa a partir de ahora"
 echo "═══════════════════════════════════════════════════════════"
 echo ""
-echo "  • Al encender el Mac, Chrome y el agente arrancan solos."
+echo "  • Al encender el Mac, el agente arranca solo en segundo plano."
+echo "  • Chrome NO se abre al encender el Mac."
+echo "  • Chrome se lanza automáticamente solo cuando hay una tarea de"
+echo "    scraping pendiente (al pulsar 'Iniciar scraping' en el CRM)."
+echo "  • Si cierras Chrome por error, la próxima tarea lo reabre sola."
 echo "  • Si el agente se cae, launchd lo reinicia automáticamente."
 echo "  • Ya no tienes que tocar Terminal para usar el CRM."
 echo ""
@@ -138,9 +122,6 @@ echo "  Comandos útiles (por si alguna vez los necesitas):"
 echo ""
 echo "    Ver los logs del agente en tiempo real:"
 echo "      tail -f ~/Library/Logs/pisalia-agent.log"
-echo ""
-echo "    Ver los logs de Chrome:"
-echo "      tail -f ~/Library/Logs/pisalia-chrome.log"
 echo ""
 echo "    Parar el agente temporalmente:"
 echo "      launchctl unload ~/Library/LaunchAgents/com.pisalia.agent.plist"
