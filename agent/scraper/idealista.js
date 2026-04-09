@@ -30,48 +30,71 @@ function cleanPrice(text) {
 
 async function extractPhone(page) {
   try {
-    const btnSelectors = [
-      'button.contact-phone-button',
-      'button[class*="phone"]',
-      'a[class*="phone"]',
-      '.phone-btn',
-      '[data-testid="phone-button"]',
-      'span.icon-phone',
-    ];
-
-    for (const sel of btnSelectors) {
-      try {
-        const btn = await page.$(sel);
-        if (btn) {
-          await btn.click();
-          await sleep(1000, 2000);
-          break;
+    // ── Estrategia 1: buscar por TEXTO del botón ("Ver teléfono") ─────────
+    // Es la más fiable porque Idealista puede cambiar las clases CSS pero
+    // el texto "Ver teléfono" / "Mostrar teléfono" es estable.
+    const clickedByText = await page.evaluate(() => {
+      const candidates = document.querySelectorAll('button, a, [role="button"]');
+      for (const c of candidates) {
+        const txt = ((c.innerText || c.textContent || '') + ' ' + (c.getAttribute('aria-label') || '')).toLowerCase();
+        if (txt.includes('ver teléfono') || txt.includes('ver telefono')
+            || txt.includes('mostrar teléfono') || txt.includes('mostrar telefono')
+            || txt.includes('ver móvil') || txt.includes('ver movil')
+            || txt.includes('mostrar número') || txt.includes('mostrar numero')) {
+          c.scrollIntoView({ block: 'center' });
+          c.click();
+          return true;
         }
-      } catch { /* ignorar */ }
+      }
+      return false;
+    });
+
+    if (clickedByText) {
+      await sleep(1000, 2000);
+    } else {
+      // ── Estrategia 2: selectores de clase (fallback) ──────────────────────
+      const btnSelectors = [
+        'button.contact-phone-button',
+        'button[class*="phone"]',
+        'a[class*="phone"]',
+        '.phone-btn',
+        '[data-testid="phone-button"]',
+        'span.icon-phone',
+      ];
+
+      for (const sel of btnSelectors) {
+        try {
+          const btn = await page.$(sel);
+          if (btn) {
+            await btn.click();
+            await sleep(1000, 2000);
+            break;
+          }
+        } catch { /* ignorar */ }
+      }
     }
 
-    const phoneSelectors = [
-      '.contact-phone-number',
-      '.phone-number',
-      '[class*="phone-number"]',
-      '[data-testid="phone-number"]',
-      '.user-contact-phone',
-    ];
-
-    for (const sel of phoneSelectors) {
-      try {
-        const el = await page.$(sel);
-        if (el) {
-          const text = await el.evaluate(e => e.textContent.trim());
-          const match = text.match(/[679]\d{8}/);
-          if (match) return match[0];
-        }
-      } catch { /* ignorar */ }
-    }
-
+    // ── Buscar el número revelado ─────────────────────────────────────────
+    // 1. Regex permisiva sobre el texto completo de la página (inline reveal)
     const pageText = await page.evaluate(() => document.body.innerText);
-    const match = pageText.match(/(?:6|7)\d{8}/);
-    return match ? match[0] : null;
+    const re = /(?:\+?34[\s-]?)?([679]\d{2})[\s-]?(\d{2,3})[\s-]?(\d{2,3})/;
+    const m = pageText.match(re);
+    if (m) {
+      const clean = (m[1] + m[2] + m[3]).replace(/[\s-]/g, '');
+      if (/^[679]\d{8}$/.test(clean)) return clean;
+    }
+
+    // 2. Buscar en enlaces tel: (a veces Idealista pone uno tras el reveal)
+    const telPhone = await page.evaluate(() => {
+      const tel = document.querySelector('a[href^="tel:"]');
+      return tel ? tel.href.replace('tel:', '') : null;
+    });
+    if (telPhone) {
+      const clean = telPhone.replace(/[\s-+]/g, '').replace(/^34/, '');
+      if (/^[679]\d{8}$/.test(clean)) return clean;
+    }
+
+    return null;
 
   } catch (err) {
     console.warn('[Scraper] Error extrayendo teléfono:', err.message);
@@ -117,8 +140,12 @@ async function extractSellerInfo(page) {
 async function extractListingsFromPage(page, precioMin, precioMax) {
   return page.evaluate((precioMin, precioMax) => {
     const items = [];
+    const seen = new Set(); // deduplicar por URL
 
     // Selectores actualizados para Idealista 2024
+    // Nota: los selectores se solapan (un mismo anuncio puede matchear tanto
+    // `article.item` como el `div[class*="item-info-container"]` de dentro),
+    // por eso deduplicamos por URL.
     const articles = document.querySelectorAll(
       'article.item, div[class*="item-info-container"], .items-list article'
     );
@@ -128,6 +155,8 @@ async function extractListingsFromPage(page, precioMin, precioMax) {
         const linkEl = art.querySelector('a.item-link, a[href*="/inmueble/"]');
         const url = linkEl ? linkEl.href : null;
         if (!url || !url.includes('/inmueble/')) return;
+        if (seen.has(url)) return;
+        seen.add(url);
 
         const titleEl = art.querySelector('.item-title, h3.item-title, [class*="item-title"]');
         const titulo = titleEl ? titleEl.textContent.trim() : '';
