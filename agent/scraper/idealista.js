@@ -271,18 +271,52 @@ async function scrapeIdealista(params, onLead) {
     // ── Scrapear páginas ──────────────────────────────────────────────────────
     for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
       if (pageNum > 1) {
-        // Navegar a la siguiente página
+        // Pausa más larga entre páginas para reducir probabilidad de ser
+        // detectado como bot por Idealista tras muchas peticiones.
+        console.log(`[Scraper] Pausa de 8s antes de la siguiente página...`);
+        await sleep(7000, 10000);
+
+        // Construir la URL de la página siguiente. Formato de Idealista:
+        //   /venta-viviendas/xxx/ → /venta-viviendas/xxx/pagina-2.htm
+        //   /venta-viviendas/xxx/con-precio-hasta_X/ → idem, appending al final
         const currentUrl = page.url();
         const nextUrl = currentUrl.includes('pagina-')
           ? currentUrl.replace(/pagina-\d+/, `pagina-${pageNum}`)
           : currentUrl.replace(/\/?$/, '') + `/pagina-${pageNum}.htm`;
 
-        console.log(`[Scraper] Página ${pageNum}:`, nextUrl);
+        console.log(`[Scraper] Navegando a página ${pageNum}:`, nextUrl);
         try {
-          await page.goto(nextUrl, { waitUntil: 'networkidle2', timeout: 30000 });
-          await sleep(2000, 4000);
+          await page.goto(nextUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+          await sleep(2500, 4500);
+
+          // Log de sanidad: confirma título y URL final tras redirects
+          const finalUrl = page.url();
+          const pageTitle = await page.title();
+          console.log(`[Scraper] Página ${pageNum} cargada. Título: "${pageTitle}" · URL final: ${finalUrl}`);
+
+          // Detectar si Idealista redirigió a página de error / captcha
+          const problemas = await page.evaluate(() => {
+            const body = (document.body?.innerText || '').toLowerCase();
+            return {
+              noResults: body.includes('no hemos encontrado ningún anuncio') || body.includes('no se han encontrado inmuebles'),
+              captcha: body.includes('no soy un robot') || body.includes('verificar que eres humano'),
+              notFound: body.includes('página no encontrada') || body.includes('la página que buscas no existe'),
+            };
+          });
+
+          if (problemas.captcha) {
+            console.warn(`[Scraper] Página ${pageNum}: CAPTCHA detectado. Esperando 60s para intervención manual...`);
+            await sleep(60000, 61000);
+          } else if (problemas.noResults) {
+            console.log(`[Scraper] Página ${pageNum}: Idealista dice que no hay más anuncios. Parando.`);
+            break;
+          } else if (problemas.notFound) {
+            console.warn(`[Scraper] Página ${pageNum}: página no existe. Parando.`);
+            break;
+          }
         } catch (err) {
-          console.log('[Scraper] No hay más páginas.');
+          console.error(`[Scraper] Error navegando a página ${pageNum}: ${err.message}`);
+          console.error(`[Scraper] URL intentada: ${nextUrl}`);
           break;
         }
       }
@@ -291,7 +325,11 @@ async function scrapeIdealista(params, onLead) {
       console.log(`[Scraper] Encontrados ${listings.length} anuncios en página ${pageNum}`);
 
       if (listings.length === 0) {
-        console.log('[Scraper] Sin más anuncios, parando.');
+        if (pageNum === 1) {
+          console.warn('[Scraper] Página 1 sin anuncios — verifica que la URL de la campaña o la pestaña abierta en Chrome apunta a resultados de búsqueda válidos.');
+        } else {
+          console.log('[Scraper] Sin más anuncios en esta página. Parando paginación.');
+        }
         break;
       }
 
