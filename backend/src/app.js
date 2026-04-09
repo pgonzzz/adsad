@@ -11,6 +11,7 @@ import matchesRouter from './routes/matches.js';
 import operacionesRouter from './routes/operaciones.js';
 import dashboardRouter from './routes/dashboard.js';
 import captacionRouter from './routes/captacion.js';
+import { startScheduler } from './scheduler.js';
 
 dotenv.config();
 
@@ -47,4 +48,12 @@ app.use('/api/dashboard', authMiddleware, dashboardRouter);
 app.use('/api/captacion', captacionRouter);
 
 const PORT = process.env.PORT || 3001;
-app.listen(PORT, () => console.log(`CRM Pisalia API corriendo en puerto ${PORT}`));
+app.listen(PORT, () => {
+  console.log(`CRM Pisalia API corriendo en puerto ${PORT}`);
+  // Scheduler de captación — crea tareas automáticas para campañas activas
+  if (process.env.SCHEDULER_ENABLED !== 'false') {
+    startScheduler();
+  } else {
+    console.log('[Scheduler] Deshabilitado por SCHEDULER_ENABLED=false');
+  }
+});

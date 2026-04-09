@@ -41,6 +41,7 @@ const ESTADO_LEAD_LABELS = {
 const emptyCampana = {
   nombre: '',
   portal: 'idealista',
+  url_inicial: '',
   provincia: '',
   poblacion: '',
   tipo: 'piso',
@@ -50,6 +51,11 @@ const emptyCampana = {
   plantilla_mensaje: 'Hola {{nombre}}, te contacto en relación a tu anuncio de {{tipo}} en {{poblacion}} por {{precio}}. ¿Sigues teniendo disponible el inmueble?',
   plantilla_followup: 'Hola {{nombre}}, hace unos días te escribí por tu anuncio de {{tipo}} en {{poblacion}}. ¿Pudiste verlo?',
   dias_followup: 3,
+  // Automatización
+  scrape_auto: false,
+  scrape_intervalo_horas: 24,
+  wa_auto_enviar: false,
+  followup_auto: false,
 };
 
 function fmt(n) {
@@ -124,6 +130,7 @@ function CampanaModal({ open, onClose, editing, onSaved, onSaveAndScrape }) {
       setForm(editing ? {
         nombre: editing.nombre || '',
         portal: editing.portal || 'idealista',
+        url_inicial: editing.url_inicial || '',
         provincia: editing.provincia || '',
         poblacion: editing.poblacion || '',
         tipo: editing.tipo || 'piso',
@@ -133,6 +140,10 @@ function CampanaModal({ open, onClose, editing, onSaved, onSaveAndScrape }) {
         plantilla_mensaje: editing.plantilla_mensaje || emptyCampana.plantilla_mensaje,
         plantilla_followup: editing.plantilla_followup || emptyCampana.plantilla_followup,
         dias_followup: editing.dias_followup || 3,
+        scrape_auto: !!editing.scrape_auto,
+        scrape_intervalo_horas: editing.scrape_intervalo_horas || 24,
+        wa_auto_enviar: !!editing.wa_auto_enviar,
+        followup_auto: !!editing.followup_auto,
       } : emptyCampana);
     }
   }, [open, editing]);
@@ -149,6 +160,7 @@ function CampanaModal({ open, onClose, editing, onSaved, onSaveAndScrape }) {
         precio_max: form.precio_max ? parseInt(form.precio_max) : null,
         max_paginas: parseInt(form.max_paginas) || 3,
         dias_followup: parseInt(form.dias_followup) || 3,
+        scrape_intervalo_horas: parseInt(form.scrape_intervalo_horas) || 24,
       };
       let campana;
       if (editing) {
@@ -196,6 +208,28 @@ function CampanaModal({ open, onClose, editing, onSaved, onSaveAndScrape }) {
               </option>
             ))}
           </select>
+        </div>
+
+        {/* URL Idealista directa (recomendado) */}
+        <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+          <label className="block text-sm font-semibold text-blue-900 mb-1">
+            URL de Idealista <span className="text-blue-600 font-normal">(recomendado)</span>
+          </label>
+          <p className="text-xs text-blue-700 mb-2">
+            Abre Idealista en tu navegador, filtra la búsqueda que quieras (ubicación, tipo, precios,
+            estado de obra, m², etc.) y pega aquí la URL. Es la forma más fiable: evita que el sistema
+            abra una página incorrecta por homónimos de ciudad.
+          </p>
+          <input
+            type="url"
+            className="w-full border border-blue-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
+            value={form.url_inicial}
+            onChange={e => set('url_inicial', e.target.value)}
+            placeholder="https://www.idealista.com/venta-viviendas/valencia-valencia/"
+          />
+          {form.url_inicial && !form.url_inicial.includes('idealista.com') && (
+            <p className="text-xs text-red-600 mt-1">⚠ La URL no parece de idealista.com</p>
+          )}
         </div>
 
         {/* Provincia / Población */}
@@ -303,6 +337,79 @@ function CampanaModal({ open, onClose, editing, onSaved, onSaveAndScrape }) {
             value={form.dias_followup}
             onChange={e => set('dias_followup', e.target.value)}
           />
+        </div>
+
+        {/* ─── Automatización ─────────────────────────────────────────── */}
+        <div className="pt-3 border-t border-gray-100">
+          <p className="text-sm font-semibold text-gray-800 mb-1">Automatización</p>
+          <p className="text-xs text-gray-500 mb-3">
+            Si la campaña está <strong>activa</strong> y tiene alguna de estas opciones encendidas,
+            el sistema encolará tareas cada ~10 min sin que tengas que pulsar nada.
+            Requiere el agente local encendido y WhatsApp vinculado para los envíos.
+          </p>
+
+          {/* Scrape automático */}
+          <label className="flex items-start gap-3 py-2 cursor-pointer">
+            <input
+              type="checkbox"
+              className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              checked={!!form.scrape_auto}
+              onChange={e => set('scrape_auto', e.target.checked)}
+            />
+            <div className="flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm font-medium text-gray-800">Scrape automático</span>
+                {form.scrape_auto && (
+                  <div className="flex items-center gap-1 text-xs text-gray-600">
+                    cada
+                    <input
+                      type="number"
+                      min="1"
+                      max="168"
+                      className="w-14 border border-gray-300 rounded px-1.5 py-0.5 text-xs focus:ring-1 focus:ring-blue-500 outline-none"
+                      value={form.scrape_intervalo_horas}
+                      onChange={e => set('scrape_intervalo_horas', e.target.value)}
+                      onClick={e => e.stopPropagation()}
+                    />
+                    horas
+                  </div>
+                )}
+              </div>
+              <p className="text-xs text-gray-500">Vuelve a scrapear Idealista periódicamente y añade los leads nuevos.</p>
+            </div>
+          </label>
+
+          {/* WhatsApp inicial automático */}
+          <label className="flex items-start gap-3 py-2 cursor-pointer">
+            <input
+              type="checkbox"
+              className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              checked={!!form.wa_auto_enviar}
+              onChange={e => set('wa_auto_enviar', e.target.checked)}
+            />
+            <div className="flex-1">
+              <span className="text-sm font-medium text-gray-800">Enviar WhatsApp a nuevos automáticamente</span>
+              <p className="text-xs text-gray-500">
+                Cuando aparezcan leads nuevos con teléfono móvil válido, el agente los contactará con la plantilla inicial.
+              </p>
+            </div>
+          </label>
+
+          {/* Follow-up automático */}
+          <label className="flex items-start gap-3 py-2 cursor-pointer">
+            <input
+              type="checkbox"
+              className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              checked={!!form.followup_auto}
+              onChange={e => set('followup_auto', e.target.checked)}
+            />
+            <div className="flex-1">
+              <span className="text-sm font-medium text-gray-800">Follow-up automático</span>
+              <p className="text-xs text-gray-500">
+                Envía la plantilla de follow-up a los leads enviados hace más de <strong>{form.dias_followup || 3}</strong> días sin respuesta.
+              </p>
+            </div>
+          </label>
         </div>
 
         {/* Acciones */}
@@ -659,6 +766,7 @@ function CampanaDetail({ campana, onBack, onRefresh, onEditLead, onDeleteLead, a
         tipo: 'scrape',
         payload: {
           campana_id: campana.id,
+          url_inicial: campana.url_inicial || null,
           poblacion: campana.poblacion,
           provincia: campana.provincia,
           tipo: campana.tipo,
@@ -882,6 +990,7 @@ export default function Captacion() {
         tipo: 'scrape',
         payload: {
           campana_id: campana.id,
+          url_inicial: campana.url_inicial || null,
           poblacion: campana.poblacion,
           provincia: campana.provincia,
           tipo: campana.tipo,
