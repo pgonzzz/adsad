@@ -26,7 +26,46 @@ function cleanPrice(text) {
   return num ? parseInt(num, 10) : null;
 }
 
-// ─── Extracción de teléfono en página de detalle ──────────────────────────────
+// ─── Construcción de URL de paginación ───────────────────────────────────────
+/**
+ * Dada una URL base de Idealista, devuelve la URL de la página N.
+ *
+ * Maneja correctamente URLs con query strings (ej. "?ordenado-por=...") —
+ * el segmento "pagina-N.htm" se inserta en el path ANTES del "?", no al
+ * final de la URL. Idealista rechaza las URLs con "pagina-N.htm" tras el
+ * query string y las redirige a la home.
+ *
+ * Ejemplos:
+ *   /venta-viviendas/madrid/                  + 2 → /venta-viviendas/madrid/pagina-2.htm
+ *   /venta-viviendas/madrid/?ordenado=foo     + 2 → /venta-viviendas/madrid/pagina-2.htm?ordenado=foo
+ *   /venta-viviendas/madrid/con-filtro_X/     + 2 → /venta-viviendas/madrid/con-filtro_X/pagina-2.htm
+ *   /venta-viviendas/madrid/pagina-3.htm      + 2 → /venta-viviendas/madrid/pagina-2.htm
+ */
+function buildPageUrl(baseUrl, pageNum) {
+  if (pageNum <= 1) return baseUrl;
+  try {
+    const u = new URL(baseUrl);
+    let path = u.pathname;
+
+    if (/\/pagina-\d+\.htm$/.test(path)) {
+      // Ya hay un pagina-N — reemplazar el número
+      path = path.replace(/\/pagina-\d+\.htm$/, `/pagina-${pageNum}.htm`);
+    } else {
+      // Asegurar que el path termine en / antes de añadir pagina-N.htm
+      if (!path.endsWith('/')) path += '/';
+      path += `pagina-${pageNum}.htm`;
+    }
+
+    u.pathname = path;
+    // u.search se preserva automáticamente al serializar con toString()
+    return u.toString();
+  } catch (err) {
+    console.warn('[Scraper] Error parseando URL para paginación:', err.message);
+    return baseUrl;
+  }
+}
+
+
 
 async function extractPhone(page) {
   try {
@@ -345,13 +384,12 @@ async function scrapeIdealista(params, onLead) {
         console.log(`[Scraper] Pausa de 8s antes de la siguiente página...`);
         await sleep(7000, 10000);
 
-        // Construir la URL de la página siguiente. Formato de Idealista:
-        //   /venta-viviendas/xxx/ → /venta-viviendas/xxx/pagina-2.htm
-        //   /venta-viviendas/xxx/con-precio-hasta_X/ → idem, appending al final
+        // Construir la URL de la página siguiente. Usamos buildPageUrl que
+        // maneja correctamente query strings: pagina-N.htm va en el PATH
+        // antes del "?", no al final de la URL (eso confunde a Idealista
+        // y redirige a la home).
         const currentUrl = page.url();
-        const nextUrl = currentUrl.includes('pagina-')
-          ? currentUrl.replace(/pagina-\d+/, `pagina-${pageNum}`)
-          : currentUrl.replace(/\/?$/, '') + `/pagina-${pageNum}.htm`;
+        const nextUrl = buildPageUrl(currentUrl, pageNum);
 
         console.log(`[Scraper] Navegando a página ${pageNum}:`, nextUrl);
         try {
