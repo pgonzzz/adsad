@@ -307,7 +307,7 @@ router.post('/agent/result', async (req, res) => {
   if (tareaError) return res.status(500).json({ error: tareaError.message });
 
   // Si es una tarea de scraping, insertar los leads devueltos
-  if (tipo === 'scrape' && Array.isArray(leads) && leads.length > 0) {
+  if (tipo === 'scrape') {
     // Obtener campaña para contexto
     const { data: tarea } = await supabase
       .from('captacion_tareas')
@@ -318,19 +318,28 @@ router.post('/agent/result', async (req, res) => {
     const campana_id = tarea?.payload?.campana_id;
 
     if (campana_id) {
-      // Deduplicar
-      const { data: existing } = await supabase
-        .from('captacion_leads')
-        .select('url_anuncio')
-        .eq('campana_id', campana_id);
+      // Marcar scrape_ultimo_at para que el scheduler respete el intervalo
+      // tras cualquier scrape (manual o automático)
+      await supabase
+        .from('captacion_campanas')
+        .update({ scrape_ultimo_at: new Date().toISOString() })
+        .eq('id', campana_id);
 
-      const existingUrls = new Set((existing || []).map(l => l.url_anuncio).filter(Boolean));
-      const newLeads = leads
-        .filter(l => !l.url_anuncio || !existingUrls.has(l.url_anuncio))
-        .map(l => ({ ...l, campana_id }));
+      if (Array.isArray(leads) && leads.length > 0) {
+        // Deduplicar
+        const { data: existing } = await supabase
+          .from('captacion_leads')
+          .select('url_anuncio')
+          .eq('campana_id', campana_id);
 
-      if (newLeads.length > 0) {
-        await supabase.from('captacion_leads').insert(newLeads);
+        const existingUrls = new Set((existing || []).map(l => l.url_anuncio).filter(Boolean));
+        const newLeads = leads
+          .filter(l => !l.url_anuncio || !existingUrls.has(l.url_anuncio))
+          .map(l => ({ ...l, campana_id }));
+
+        if (newLeads.length > 0) {
+          await supabase.from('captacion_leads').insert(newLeads);
+        }
       }
     }
   }

@@ -50,6 +50,11 @@ const emptyCampana = {
   plantilla_mensaje: 'Hola {{nombre}}, te contacto en relación a tu anuncio de {{tipo}} en {{poblacion}} por {{precio}}. ¿Sigues teniendo disponible el inmueble?',
   plantilla_followup: 'Hola {{nombre}}, hace unos días te escribí por tu anuncio de {{tipo}} en {{poblacion}}. ¿Pudiste verlo?',
   dias_followup: 3,
+  // Automatización
+  scrape_auto: false,
+  scrape_intervalo_horas: 24,
+  wa_auto_enviar: false,
+  followup_auto: false,
 };
 
 function fmt(n) {
@@ -133,6 +138,10 @@ function CampanaModal({ open, onClose, editing, onSaved, onSaveAndScrape }) {
         plantilla_mensaje: editing.plantilla_mensaje || emptyCampana.plantilla_mensaje,
         plantilla_followup: editing.plantilla_followup || emptyCampana.plantilla_followup,
         dias_followup: editing.dias_followup || 3,
+        scrape_auto: !!editing.scrape_auto,
+        scrape_intervalo_horas: editing.scrape_intervalo_horas || 24,
+        wa_auto_enviar: !!editing.wa_auto_enviar,
+        followup_auto: !!editing.followup_auto,
       } : emptyCampana);
     }
   }, [open, editing]);
@@ -149,6 +158,7 @@ function CampanaModal({ open, onClose, editing, onSaved, onSaveAndScrape }) {
         precio_max: form.precio_max ? parseInt(form.precio_max) : null,
         max_paginas: parseInt(form.max_paginas) || 3,
         dias_followup: parseInt(form.dias_followup) || 3,
+        scrape_intervalo_horas: parseInt(form.scrape_intervalo_horas) || 24,
       };
       let campana;
       if (editing) {
@@ -303,6 +313,79 @@ function CampanaModal({ open, onClose, editing, onSaved, onSaveAndScrape }) {
             value={form.dias_followup}
             onChange={e => set('dias_followup', e.target.value)}
           />
+        </div>
+
+        {/* ─── Automatización ─────────────────────────────────────────── */}
+        <div className="pt-3 border-t border-gray-100">
+          <p className="text-sm font-semibold text-gray-800 mb-1">Automatización</p>
+          <p className="text-xs text-gray-500 mb-3">
+            Si la campaña está <strong>activa</strong> y tiene alguna de estas opciones encendidas,
+            el sistema encolará tareas cada ~10 min sin que tengas que pulsar nada.
+            Requiere el agente local encendido y WhatsApp vinculado para los envíos.
+          </p>
+
+          {/* Scrape automático */}
+          <label className="flex items-start gap-3 py-2 cursor-pointer">
+            <input
+              type="checkbox"
+              className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              checked={!!form.scrape_auto}
+              onChange={e => set('scrape_auto', e.target.checked)}
+            />
+            <div className="flex-1">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm font-medium text-gray-800">Scrape automático</span>
+                {form.scrape_auto && (
+                  <div className="flex items-center gap-1 text-xs text-gray-600">
+                    cada
+                    <input
+                      type="number"
+                      min="1"
+                      max="168"
+                      className="w-14 border border-gray-300 rounded px-1.5 py-0.5 text-xs focus:ring-1 focus:ring-blue-500 outline-none"
+                      value={form.scrape_intervalo_horas}
+                      onChange={e => set('scrape_intervalo_horas', e.target.value)}
+                      onClick={e => e.stopPropagation()}
+                    />
+                    horas
+                  </div>
+                )}
+              </div>
+              <p className="text-xs text-gray-500">Vuelve a scrapear Idealista periódicamente y añade los leads nuevos.</p>
+            </div>
+          </label>
+
+          {/* WhatsApp inicial automático */}
+          <label className="flex items-start gap-3 py-2 cursor-pointer">
+            <input
+              type="checkbox"
+              className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              checked={!!form.wa_auto_enviar}
+              onChange={e => set('wa_auto_enviar', e.target.checked)}
+            />
+            <div className="flex-1">
+              <span className="text-sm font-medium text-gray-800">Enviar WhatsApp a nuevos automáticamente</span>
+              <p className="text-xs text-gray-500">
+                Cuando aparezcan leads nuevos con teléfono móvil válido, el agente los contactará con la plantilla inicial.
+              </p>
+            </div>
+          </label>
+
+          {/* Follow-up automático */}
+          <label className="flex items-start gap-3 py-2 cursor-pointer">
+            <input
+              type="checkbox"
+              className="mt-1 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              checked={!!form.followup_auto}
+              onChange={e => set('followup_auto', e.target.checked)}
+            />
+            <div className="flex-1">
+              <span className="text-sm font-medium text-gray-800">Follow-up automático</span>
+              <p className="text-xs text-gray-500">
+                Envía la plantilla de follow-up a los leads enviados hace más de <strong>{form.dias_followup || 3}</strong> días sin respuesta.
+              </p>
+            </div>
+          </label>
         </div>
 
         {/* Acciones */}
