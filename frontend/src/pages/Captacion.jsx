@@ -75,6 +75,48 @@ function timeAgo(dateStr) {
   return `${days}d`;
 }
 
+// Convierte un slug de Idealista ("a-coruna", "vilanova-i-la-geltru") en
+// nombre legible ("A Coruña", "Vilanova I La Geltru"). No es perfecto
+// (no recupera tildes), pero sirve como auto-relleno orientativo.
+function slugToTitle(slug) {
+  if (!slug) return '';
+  return slug.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+// Intenta extraer provincia y población de una URL de Idealista.
+// Ejemplo: https://www.idealista.com/venta-viviendas/granollers-barcelona/
+//          → { poblacion: 'Granollers', provincia: 'Barcelona' }
+// Ejemplo: https://www.idealista.com/venta-viviendas/barcelona-provincia/
+//          → { poblacion: '', provincia: 'Barcelona' }
+function extractFromIdealistaUrl(url) {
+  if (!url || typeof url !== 'string') return null;
+  try {
+    const u = new URL(url);
+    if (!u.hostname.includes('idealista.com')) return null;
+    const parts = u.pathname.split('/').filter(Boolean);
+    // Buscar el segmento con la localidad (tras venta-* o alquiler-*)
+    const locIdx = parts.findIndex(p => /^(venta|alquiler)-/.test(p));
+    const slug = locIdx >= 0 ? parts[locIdx + 1] : parts[1];
+    if (!slug) return null;
+    const tokens = slug.split('-');
+    // Caso "<algo>-provincia" → toda la provincia
+    if (tokens[tokens.length - 1] === 'provincia') {
+      return { provincia: slugToTitle(tokens.slice(0, -1).join('-')), poblacion: '' };
+    }
+    // Caso "<municipio>-<provincia>"
+    if (tokens.length >= 2) {
+      return {
+        provincia: slugToTitle(tokens[tokens.length - 1]),
+        poblacion: slugToTitle(tokens.slice(0, -1).join('-')),
+      };
+    }
+    // Solo un token: asumimos población
+    return { provincia: '', poblacion: slugToTitle(tokens[0]) };
+  } catch {
+    return null;
+  }
+}
+
 // ─── Componente AgentStatusBar ────────────────────────────────────────────────
 function AgentStatusBar({ status, onRefresh }) {
   const isOnline = status?.online;
@@ -150,6 +192,20 @@ function CampanaModal({ open, onClose, editing, onSaved, onSaveAndScrape }) {
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
+  // Al pegar una URL de Idealista, si provincia/población están vacías,
+  // auto-rellenarlas parseando el slug de la URL.
+  const setUrlInicial = (v) => {
+    setForm(f => {
+      const next = { ...f, url_inicial: v };
+      const extracted = extractFromIdealistaUrl(v);
+      if (extracted) {
+        if (!f.provincia && extracted.provincia) next.provincia = extracted.provincia;
+        if (!f.poblacion && extracted.poblacion) next.poblacion = extracted.poblacion;
+      }
+      return next;
+    });
+  };
+
   const handleSave = async (andScrape = false) => {
     if (!form.nombre.trim()) return;
     setSaving(true);
@@ -224,7 +280,7 @@ function CampanaModal({ open, onClose, editing, onSaved, onSaveAndScrape }) {
             type="url"
             className="w-full border border-blue-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white"
             value={form.url_inicial}
-            onChange={e => set('url_inicial', e.target.value)}
+            onChange={e => setUrlInicial(e.target.value)}
             placeholder="https://www.idealista.com/venta-viviendas/valencia-valencia/"
           />
           {form.url_inicial && !form.url_inicial.includes('idealista.com') && (
@@ -232,10 +288,12 @@ function CampanaModal({ open, onClose, editing, onSaved, onSaveAndScrape }) {
           )}
         </div>
 
-        {/* Provincia / Población */}
+        {/* Provincia / Población — opcionales, solo para etiquetar los leads */}
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Provincia</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Provincia <span className="text-gray-400 font-normal">(opcional)</span>
+            </label>
             <Combobox
               options={PROVINCIAS}
               value={form.provincia}
@@ -244,7 +302,9 @@ function CampanaModal({ open, onClose, editing, onSaved, onSaveAndScrape }) {
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Población</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Población <span className="text-gray-400 font-normal">(opcional)</span>
+            </label>
             <ComboboxMunicipios
               provincia={form.provincia}
               value={form.poblacion}
@@ -252,6 +312,9 @@ function CampanaModal({ open, onClose, editing, onSaved, onSaveAndScrape }) {
             />
           </div>
         </div>
+        <p className="text-xs text-gray-400 -mt-2">
+          Estos campos se usan solo como etiquetas de los leads para filtrarlos después. No son necesarios si pegas la URL de Idealista.
+        </p>
 
         {/* Tipo */}
         <div>
@@ -602,12 +665,57 @@ function ConvertirProveedorModal({ lead, onClose, onConverted }) {
 // ─── Tabla de leads ───────────────────────────────────────────────────────────
 function LeadsTable({ leads, showCampana = false, onEditLead, onDeleteLead, onRefresh }) {
   const [filterEstado, setFilterEstado] = useState('');
+  const [filterProvincia, setFilterProvincia] = useState('');
+  const [filterPoblacion, setFilterPoblacion] = useState('');
   const [convertirLead, setConvertirLead] = useState(null);
 
-  const filtered = filterEstado ? leads.filter(l => l.estado === filterEstado) : leads;
+  const filtered = leads.filter(l => {
+    if (filterEstado && l.estado !== filterEstado) return false;
+    if (filterProvincia && l.provincia !== filterProvincia) return false;
+    if (filterPoblacion && !(l.poblacion || '').toLowerCase().includes(filterPoblacion.toLowerCase())) return false;
+    return true;
+  });
+
+  const clearFilters = () => {
+    setFilterEstado('');
+    setFilterProvincia('');
+    setFilterPoblacion('');
+  };
+
+  const hasFilters = filterEstado || filterProvincia || filterPoblacion;
 
   return (
     <div>
+      {/* Filtros de provincia y población */}
+      <div className="flex gap-2 mb-3 items-end flex-wrap">
+        <div className="min-w-[180px]">
+          <label className="block text-xs text-gray-500 mb-1">Provincia</label>
+          <Combobox
+            options={PROVINCIAS}
+            value={filterProvincia}
+            onChange={v => { setFilterProvincia(v); setFilterPoblacion(''); }}
+            placeholder="Todas"
+          />
+        </div>
+        <div className="min-w-[180px]">
+          <label className="block text-xs text-gray-500 mb-1">Población</label>
+          <ComboboxMunicipios
+            provincia={filterProvincia}
+            value={filterPoblacion}
+            onChange={setFilterPoblacion}
+            placeholder={filterProvincia ? 'Buscar...' : 'Todas'}
+          />
+        </div>
+        {hasFilters && (
+          <button
+            onClick={clearFilters}
+            className="px-3 py-2 text-xs text-gray-500 hover:text-gray-800 border border-gray-200 rounded-lg hover:bg-gray-50"
+          >
+            Limpiar filtros
+          </button>
+        )}
+      </div>
+
       {/* Filtro de estado */}
       <div className="flex gap-2 mb-3 flex-wrap">
         <button

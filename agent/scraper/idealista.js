@@ -219,24 +219,49 @@ async function scrapeIdealista(params) {
   }
 
   try {
-    // ── Obtener la pestaña de Idealista ya abierta ────────────────────────────
-    const pages = await browser.pages();
-    let page = pages.find(p => p.url().includes('idealista.com'));
+    // ── Decidir qué URL usar ──────────────────────────────────────────────
+    // Prioridad:
+    //   1. url_inicial pegada en la campaña (modo totalmente automático)
+    //   2. Pestaña de Idealista ya abierta por el usuario (modo manual)
+    //   3. URL construida con buildSearchUrl (último recurso)
+    const urlFromCampaign = (params.url_inicial
+      && typeof params.url_inicial === 'string'
+      && params.url_inicial.includes('idealista.com'))
+      ? params.url_inicial
+      : null;
 
-    if (!page) {
-      // No hay pestaña de Idealista — abrir una nueva con la búsqueda
-      page = pages[0] || await browser.newPage();
-      const baseUrl = buildSearchUrl(params);
-      console.log('[Scraper] Navegando a:', baseUrl);
-      if (!ownBrowser) {
-        await page.goto(baseUrl, { waitUntil: 'networkidle2', timeout: 30000 });
-      } else {
+    const pages = await browser.pages();
+    let page;
+
+    if (urlFromCampaign) {
+      // Prioridad 1: navegar a la URL que el usuario pegó en la campaña.
+      // Reutilizamos una pestaña de Idealista si ya hay una (para no
+      // acumularlas), si no, abrimos una nueva.
+      const existingIdealista = pages.find(p => p.url().includes('idealista.com'));
+      page = existingIdealista || pages[0] || await browser.newPage();
+      console.log('[Scraper] Navegando a url_inicial de la campaña:', urlFromCampaign);
+      if (ownBrowser) {
         await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
-        await page.goto(baseUrl, { waitUntil: 'networkidle2', timeout: 30000 });
       }
+      await page.goto(urlFromCampaign, { waitUntil: 'networkidle2', timeout: 30000 });
       await sleep(2000, 4000);
     } else {
-      console.log('[Scraper] Usando pestaña de Idealista ya abierta:', page.url());
+      // Prioridad 2: usar pestaña de Idealista ya abierta por el usuario
+      page = pages.find(p => p.url().includes('idealista.com'));
+
+      if (!page) {
+        // Prioridad 3: construir URL con buildSearchUrl y navegar
+        page = pages[0] || await browser.newPage();
+        const baseUrl = buildSearchUrl(params);
+        console.log('[Scraper] Navegando a (fallback):', baseUrl);
+        if (ownBrowser) {
+          await page.setUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36');
+        }
+        await page.goto(baseUrl, { waitUntil: 'networkidle2', timeout: 30000 });
+        await sleep(2000, 4000);
+      } else {
+        console.log('[Scraper] Usando pestaña de Idealista ya abierta:', page.url());
+      }
     }
 
     // ── Scrapear páginas ──────────────────────────────────────────────────────
