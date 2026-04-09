@@ -75,6 +75,59 @@ function timeAgo(dateStr) {
   return `${days}d`;
 }
 
+// Clasifica un teléfono en 'movil' / 'fijo' / 'sin_telefono' / 'otro'.
+// Móvil = 6xxx o 7xxx, Fijo = 8xxx o 9xxx (ambos ≡ 9 dígitos).
+// Admite prefijo +34 / 34 opcional, espacios y guiones.
+function tipoTelefono(tel) {
+  if (!tel) return 'sin_telefono';
+  const clean = String(tel).replace(/[\s\-+]/g, '').replace(/^34/, '');
+  if (!/^\d{9}$/.test(clean)) return 'otro';
+  if (/^[67]/.test(clean)) return 'movil';
+  if (/^[89]/.test(clean)) return 'fijo';
+  return 'otro';
+}
+
+const TIPO_TEL_LABELS = {
+  movil: 'Móvil',
+  fijo: 'Fijo',
+  sin_telefono: 'Sin teléfono',
+  otro: 'Otro',
+};
+
+const TIPO_TEL_COLORS = {
+  movil: 'green',
+  fijo: 'blue',
+  sin_telefono: 'gray',
+  otro: 'yellow',
+};
+
+// Parsea el JSONB de características del lead (scrapeado de Idealista) y
+// devuelve un resumen compacto tipo "110m² · 4h · 2b · con ascensor".
+// También devuelve los items en crudo por si quieres mostrarlos en detalle.
+function parseCaracteristicas(c) {
+  if (!c || typeof c !== 'object') return { resumen: '', items: [] };
+  const allItems = Object.values(c).flat().filter(Boolean);
+  const joined = allItems.join(' · ').toLowerCase();
+
+  const summary = [];
+
+  const m2 = joined.match(/(\d+)\s*m[²2]/);
+  if (m2) summary.push(`${m2[1]}m²`);
+
+  const hab = joined.match(/(\d+)\s+habitaci/);
+  if (hab) summary.push(`${hab[1]}h`);
+
+  const banos = joined.match(/(\d+)\s+baño/);
+  if (banos) summary.push(`${banos[1]}b`);
+
+  if (joined.includes('con ascensor')) summary.push('ascensor');
+  if (joined.includes('para reformar')) summary.push('para reformar');
+  else if (joined.includes('buen estado')) summary.push('buen estado');
+  else if (joined.includes('obra nueva')) summary.push('obra nueva');
+
+  return { resumen: summary.join(' · '), items: allItems };
+}
+
 // Convierte un slug de Idealista ("a-coruna", "vilanova-i-la-geltru") en
 // nombre legible ("A Coruña", "Vilanova I La Geltru"). No es perfecto
 // (no recupera tildes), pero sirve como auto-relleno orientativo.
@@ -677,12 +730,14 @@ function ConvertirProveedorModal({ lead, onClose, onConverted }) {
 // ─── Tabla de leads ───────────────────────────────────────────────────────────
 function LeadsTable({ leads, showCampana = false, onEditLead, onDeleteLead, onRefresh }) {
   const [filterEstado, setFilterEstado] = useState('');
+  const [filterTipoTel, setFilterTipoTel] = useState('');
   const [filterProvincia, setFilterProvincia] = useState('');
   const [filterPoblacion, setFilterPoblacion] = useState('');
   const [convertirLead, setConvertirLead] = useState(null);
 
   const filtered = leads.filter(l => {
     if (filterEstado && l.estado !== filterEstado) return false;
+    if (filterTipoTel && tipoTelefono(l.telefono) !== filterTipoTel) return false;
     if (filterProvincia && l.provincia !== filterProvincia) return false;
     if (filterPoblacion && !(l.poblacion || '').toLowerCase().includes(filterPoblacion.toLowerCase())) return false;
     return true;
@@ -690,11 +745,18 @@ function LeadsTable({ leads, showCampana = false, onEditLead, onDeleteLead, onRe
 
   const clearFilters = () => {
     setFilterEstado('');
+    setFilterTipoTel('');
     setFilterProvincia('');
     setFilterPoblacion('');
   };
 
-  const hasFilters = filterEstado || filterProvincia || filterPoblacion;
+  const hasFilters = filterEstado || filterTipoTel || filterProvincia || filterPoblacion;
+
+  // Conteos por tipo de teléfono
+  const countMovil = leads.filter(l => tipoTelefono(l.telefono) === 'movil').length;
+  const countFijo = leads.filter(l => tipoTelefono(l.telefono) === 'fijo').length;
+  const countSin = leads.filter(l => tipoTelefono(l.telefono) === 'sin_telefono').length;
+  const countOtro = leads.filter(l => tipoTelefono(l.telefono) === 'otro').length;
 
   return (
     <div>
@@ -728,8 +790,56 @@ function LeadsTable({ leads, showCampana = false, onEditLead, onDeleteLead, onRe
         )}
       </div>
 
+      {/* Filtro de tipo de teléfono — crítico para WhatsApp (solo móvil funciona) */}
+      <div className="flex gap-2 mb-2 flex-wrap items-center">
+        <span className="text-xs text-gray-500 font-medium mr-1">Teléfono:</span>
+        <button
+          onClick={() => setFilterTipoTel('')}
+          className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+            filterTipoTel === '' ? 'bg-gray-800 text-white border-gray-800' : 'text-gray-600 border-gray-300 hover:bg-gray-50'
+          }`}
+        >
+          Todos ({leads.length})
+        </button>
+        <button
+          onClick={() => setFilterTipoTel('movil')}
+          className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+            filterTipoTel === 'movil' ? 'bg-green-600 text-white border-green-600' : 'text-green-700 border-green-300 hover:bg-green-50'
+          }`}
+        >
+          📱 Móvil ({countMovil})
+        </button>
+        <button
+          onClick={() => setFilterTipoTel('fijo')}
+          className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+            filterTipoTel === 'fijo' ? 'bg-blue-600 text-white border-blue-600' : 'text-blue-700 border-blue-300 hover:bg-blue-50'
+          }`}
+        >
+          ☎ Fijo ({countFijo})
+        </button>
+        <button
+          onClick={() => setFilterTipoTel('sin_telefono')}
+          className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+            filterTipoTel === 'sin_telefono' ? 'bg-gray-700 text-white border-gray-700' : 'text-gray-600 border-gray-300 hover:bg-gray-50'
+          }`}
+        >
+          ∅ Sin teléfono ({countSin})
+        </button>
+        {countOtro > 0 && (
+          <button
+            onClick={() => setFilterTipoTel('otro')}
+            className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
+              filterTipoTel === 'otro' ? 'bg-yellow-600 text-white border-yellow-600' : 'text-yellow-700 border-yellow-300 hover:bg-yellow-50'
+            }`}
+          >
+            ? Otro ({countOtro})
+          </button>
+        )}
+      </div>
+
       {/* Filtro de estado */}
-      <div className="flex gap-2 mb-3 flex-wrap">
+      <div className="flex gap-2 mb-3 flex-wrap items-center">
+        <span className="text-xs text-gray-500 font-medium mr-1">Estado:</span>
         <button
           onClick={() => setFilterEstado('')}
           className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors ${
@@ -784,9 +894,36 @@ function LeadsTable({ leads, showCampana = false, onEditLead, onDeleteLead, onRe
                     )}
                   </td>
                   <td className="py-2 pr-3 text-gray-600 font-mono text-xs">
-                    {lead.telefono || '—'}
+                    {(() => {
+                      const tipo = tipoTelefono(lead.telefono);
+                      if (tipo === 'sin_telefono') return <span className="text-gray-300">—</span>;
+                      const icon = tipo === 'movil' ? '📱' : tipo === 'fijo' ? '☎' : '?';
+                      const color = tipo === 'movil' ? 'text-green-700' : tipo === 'fijo' ? 'text-blue-700' : 'text-yellow-700';
+                      return (
+                        <span className={color} title={TIPO_TEL_LABELS[tipo]}>
+                          {icon} {lead.telefono}
+                        </span>
+                      );
+                    })()}
                   </td>
-                  <td className="py-2 pr-3 text-gray-600 capitalize">{lead.tipo || '—'}</td>
+                  <td className="py-2 pr-3 text-gray-600">
+                    {(() => {
+                      const { resumen, items } = parseCaracteristicas(lead.caracteristicas);
+                      return (
+                        <div>
+                          <span className="capitalize">{lead.tipo || '—'}</span>
+                          {resumen && (
+                            <div
+                              className="text-xs text-gray-500 mt-0.5"
+                              title={items.join('\n')}
+                            >
+                              {resumen}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </td>
                   <td className="py-2 pr-3 text-gray-800">{fmt(lead.precio)}</td>
                   <td className="py-2 pr-3 text-gray-600">{lead.poblacion || lead.provincia || '—'}</td>
                   <td className="py-2 pr-3">
@@ -889,6 +1026,8 @@ function CampanaDetail({ campana, onBack, onRefresh, onEditLead, onDeleteLead, a
     enviado: leads.filter(l => l.estado === 'enviado').length,
     respondido: leads.filter(l => l.estado === 'respondido').length,
     convertido: leads.filter(l => l.estado === 'convertido').length,
+    // Solo los móviles son contactables por WhatsApp
+    nuevos_movil: leads.filter(l => l.estado === 'nuevo' && tipoTelefono(l.telefono) === 'movil').length,
   };
 
   const handleScrape = async () => {
@@ -915,9 +1054,12 @@ function CampanaDetail({ campana, onBack, onRefresh, onEditLead, onDeleteLead, a
   };
 
   const handleSendWA = async () => {
-    const leadsToSend = leads.filter(l => l.estado === 'nuevo' && l.telefono);
+    // Solo se envía a móviles — WhatsApp no funciona en fijos
+    const leadsToSend = leads.filter(l =>
+      l.estado === 'nuevo' && tipoTelefono(l.telefono) === 'movil'
+    );
     if (leadsToSend.length === 0) {
-      alert('No hay leads nuevos con teléfono para enviar.');
+      alert('No hay leads nuevos con teléfono móvil válido para enviar por WhatsApp.');
       return;
     }
     if (!agentStatus?.whatsapp_connected) {
@@ -946,7 +1088,7 @@ function CampanaDetail({ campana, onBack, onRefresh, onEditLead, onDeleteLead, a
     const cutoff = new Date(Date.now() - diasFollowup * 24 * 3600 * 1000);
     const leadsFollowup = leads.filter(l =>
       l.estado === 'enviado' &&
-      l.telefono &&
+      tipoTelefono(l.telefono) === 'movil' &&
       (!l.ultimo_contacto || new Date(l.ultimo_contacto) < cutoff)
     );
     if (leadsFollowup.length === 0) {
@@ -1035,7 +1177,7 @@ function CampanaDetail({ campana, onBack, onRefresh, onEditLead, onDeleteLead, a
           className="flex items-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm font-medium disabled:opacity-50"
         >
           <MessageSquare size={14} />
-          {actionLoading === 'wa_send' ? 'Creando tarea...' : `Enviar WhatsApp a nuevos (${stats.nuevo})`}
+          {actionLoading === 'wa_send' ? 'Creando tarea...' : `Enviar WhatsApp a nuevos (${stats.nuevos_movil} móviles)`}
         </button>
         <button
           onClick={handleFollowup}

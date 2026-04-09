@@ -102,6 +102,75 @@ async function extractPhone(page) {
   }
 }
 
+// ─── Extracción de características del piso ──────────────────────────────────
+/**
+ * Extrae las "Características básicas", "Edificio", "Certificado energético",
+ * "Equipamiento" y similares de la página de detalle del anuncio. Devuelve
+ * un objeto con cada sección como clave y un array de strings con los bullets.
+ *
+ * Ejemplo de resultado:
+ * {
+ *   "Características básicas": ["110 m² construidos", "4 habitaciones", ...],
+ *   "Edificio": ["Planta 2ª exterior", "Con ascensor"],
+ *   "Certificado energético": ["En trámite"]
+ * }
+ */
+async function extractCaracteristicas(page) {
+  try {
+    return await page.evaluate(() => {
+      const result = {};
+      const wantedSections = [
+        'características básicas',
+        'caracteristicas basicas',
+        'características',
+        'edificio',
+        'certificado energético',
+        'certificado energetico',
+        'equipamiento',
+        'extras',
+      ];
+
+      const allHeaders = document.querySelectorAll('h1, h2, h3, h4, h5, h6');
+      for (const h of allHeaders) {
+        const title = (h.textContent || '').trim();
+        const lowTitle = title.toLowerCase();
+        if (!wantedSections.some(s => lowTitle.includes(s))) continue;
+
+        // Buscar el siguiente <ul> (puede estar directamente al lado del
+        // header o dentro de un wrapper pocos niveles por debajo)
+        let container = h.nextElementSibling;
+        let ul = null;
+        for (let i = 0; container && i < 5 && !ul; i++) {
+          if (container.tagName === 'UL') {
+            ul = container;
+            break;
+          }
+          const innerUl = container.querySelector && container.querySelector('ul');
+          if (innerUl) {
+            ul = innerUl;
+            break;
+          }
+          container = container.nextElementSibling;
+        }
+
+        if (ul) {
+          const items = Array.from(ul.querySelectorAll('li'))
+            .map(li => (li.textContent || '').replace(/\s+/g, ' ').trim())
+            .filter(t => t.length > 0 && t.length < 250);
+          if (items.length > 0) {
+            result[title] = items;
+          }
+        }
+      }
+
+      return Object.keys(result).length > 0 ? result : null;
+    });
+  } catch (err) {
+    console.warn('[Scraper] Error extrayendo características:', err.message);
+    return null;
+  }
+}
+
 // ─── Extracción de datos del vendedor ─────────────────────────────────────────
 
 async function extractSellerInfo(page) {
@@ -344,6 +413,7 @@ async function scrapeIdealista(params, onLead) {
 
           const telefono = await extractPhone(detailPage);
           const { nombre_vendedor, es_particular } = await extractSellerInfo(detailPage);
+          const caracteristicas = await extractCaracteristicas(detailPage);
 
           await detailPage.close();
 
@@ -354,6 +424,7 @@ async function scrapeIdealista(params, onLead) {
             telefono,
             nombre_vendedor,
             es_particular,
+            caracteristicas,
             poblacion: params.poblacion || null,
             provincia: params.provincia || null,
             tipo: params.tipo || 'piso',
