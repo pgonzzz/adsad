@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
 import { captacionApi } from '../api';
 import Modal from '../components/Modal';
 import Badge from '../components/Badge';
@@ -1263,6 +1264,9 @@ function CampanaDetail({ campana, onBack, onRefresh, onEditLead, onDeleteLead, a
 
 // ─── Página principal ─────────────────────────────────────────────────────────
 export default function Captacion() {
+  const { campanaId } = useParams();
+  const navigate = useNavigate();
+
   const [campanas, setCampanas] = useState([]);
   const [allLeads, setAllLeads] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1295,6 +1299,18 @@ export default function Captacion() {
     loadAllLeads();
     loadAgentStatus();
   }, [loadCampanas, loadAllLeads, loadAgentStatus]);
+
+  // Si la URL tiene campanaId (ej. /captacion/abc-123), cargar esa campaña
+  // automáticamente. Así al refrescar no se pierde la vista de detalle.
+  useEffect(() => {
+    if (campanaId && !selectedCampana) {
+      captacionApi.getCampana(campanaId)
+        .then(setSelectedCampana)
+        .catch(() => navigate('/captacion', { replace: true }));
+    } else if (!campanaId) {
+      setSelectedCampana(null);
+    }
+  }, [campanaId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Refresh agent status every 15s
   useEffect(() => {
@@ -1368,7 +1384,7 @@ export default function Captacion() {
       <div className="p-6 max-w-6xl mx-auto">
         <CampanaDetail
           campana={selectedCampana}
-          onBack={() => { setSelectedCampana(null); loadCampanas(); loadAllLeads(); }}
+          onBack={() => { navigate('/captacion'); loadCampanas(); loadAllLeads(); }}
           onRefresh={loadCampanas}
           onEditLead={handleEditLead}
           onDeleteLead={async (id) => { await captacionApi.deleteLead(id); }}
@@ -1465,7 +1481,7 @@ export default function Captacion() {
                   <tr
                     key={c.id}
                     className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
-                    onClick={() => setSelectedCampana(c)}
+                    onClick={() => navigate(`/captacion/${c.id}`)}
                   >
                     <td className="px-4 py-3 font-medium text-gray-900">{c.nombre}</td>
                     <td className="px-4 py-3 capitalize text-gray-600">{c.portal}</td>

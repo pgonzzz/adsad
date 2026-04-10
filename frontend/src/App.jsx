@@ -37,6 +37,7 @@ export default function App() {
           <Route path="matches" element={<Matches />} />
           <Route path="operaciones" element={<Operaciones />} />
           <Route path="captacion" element={<Captacion />} />
+          <Route path="captacion/:campanaId" element={<Captacion />} />
         </Route>
       </Routes>
     </BrowserRouter>
