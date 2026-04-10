@@ -101,31 +101,93 @@ const TIPO_TEL_COLORS = {
   otro: 'yellow',
 };
 
-// Parsea el JSONB de características del lead (scrapeado de Idealista) y
-// devuelve un resumen compacto tipo "110m² · 4h · 2b · con ascensor".
-// También devuelve los items en crudo por si quieres mostrarlos en detalle.
+// Parsea el JSONB de características y devuelve campos estructurados para
+// mostrar directamente en la UI (sin tooltip).
 function parseCaracteristicas(c) {
-  if (!c || typeof c !== 'object') return { resumen: '', items: [] };
+  if (!c || typeof c !== 'object') return null;
   const allItems = Object.values(c).flat().filter(Boolean);
+  if (allItems.length === 0) return null;
   const joined = allItems.join(' · ').toLowerCase();
 
-  const summary = [];
+  const m2 = joined.match(/(\d+)\s*m[²2]\s*construidos/i)?.[1]
+           || joined.match(/(\d+)\s*m[²2]/i)?.[1];
+  const hab = joined.match(/(\d+)\s*habitaci/i)?.[1];
+  const banos = joined.match(/(\d+)\s*baño/i)?.[1];
+  const planta = joined.match(/(planta\s+\S+(?:\s+\w+)?)/i)?.[1];
 
-  const m2 = joined.match(/(\d+)\s*m[²2]/);
-  if (m2) summary.push(`${m2[1]}m²`);
+  const flags = [];
+  if (joined.includes('con ascensor')) flags.push('Ascensor');
+  if (joined.includes('sin ascensor')) flags.push('Sin ascensor');
+  if (joined.includes('para reformar')) flags.push('Para reformar');
+  else if (joined.includes('buen estado')) flags.push('Buen estado');
+  else if (joined.includes('obra nueva')) flags.push('Obra nueva');
+  if (joined.includes('calefacción')) {
+    const cal = joined.match(/calefacción\s+(\w+)/i);
+    if (cal) flags.push(`Calef. ${cal[1]}`);
+  }
+  if (joined.includes('orientación')) {
+    const ori = joined.match(/orientación\s+(\w+)/i);
+    if (ori) flags.push(`Orient. ${ori[1]}`);
+  }
+  if (joined.includes('exterior')) flags.push('Exterior');
+  else if (joined.includes('interior')) flags.push('Interior');
+  if (joined.includes('movilidad reducida')) flags.push('Adaptado');
 
-  const hab = joined.match(/(\d+)\s+habitaci/);
-  if (hab) summary.push(`${hab[1]}h`);
+  // Certificado energético
+  const cert = Object.entries(c).find(([k]) => k.toLowerCase().includes('energ'));
+  const certValue = cert ? cert[1].join(', ') : null;
 
-  const banos = joined.match(/(\d+)\s+baño/);
-  if (banos) summary.push(`${banos[1]}b`);
+  return { m2, hab, banos, planta, flags, certValue };
+}
 
-  if (joined.includes('con ascensor')) summary.push('ascensor');
-  if (joined.includes('para reformar')) summary.push('para reformar');
-  else if (joined.includes('buen estado')) summary.push('buen estado');
-  else if (joined.includes('obra nueva')) summary.push('obra nueva');
+// Componente que muestra las características del lead de forma compacta
+// siempre visible (sin tooltip).
+function LeadCaracteristicas({ caracteristicas, tipo }) {
+  const parsed = parseCaracteristicas(caracteristicas);
 
-  return { resumen: summary.join(' · '), items: allItems };
+  if (!parsed) {
+    return <span className="capitalize text-gray-600">{tipo || '—'}</span>;
+  }
+
+  const { m2, hab, banos, planta, flags, certValue } = parsed;
+
+  return (
+    <div className="space-y-1">
+      {/* Tipo + métricas principales como badges */}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <span className="capitalize font-medium text-gray-800 text-xs">{tipo || '—'}</span>
+        {m2 && (
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 text-[10px] font-semibold">
+            {m2}m²
+          </span>
+        )}
+        {hab && (
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 text-[10px] font-semibold">
+            {hab}h
+          </span>
+        )}
+        {banos && (
+          <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-cyan-50 text-cyan-700 text-[10px] font-semibold">
+            {banos}b
+          </span>
+        )}
+      </div>
+
+      {/* Flags secundarios: ascensor, estado, planta, orientación, etc. */}
+      {(flags.length > 0 || planta) && (
+        <div className="text-[10px] text-gray-500 leading-tight">
+          {[planta ? planta.charAt(0).toUpperCase() + planta.slice(1) : null, ...flags]
+            .filter(Boolean)
+            .join(' · ')}
+        </div>
+      )}
+
+      {/* Certificado energético */}
+      {certValue && certValue.toLowerCase() !== 'en trámite' && (
+        <div className="text-[10px] text-gray-400">Cert. {certValue}</div>
+      )}
+    </div>
+  );
 }
 
 // Convierte un slug de Idealista ("a-coruna", "vilanova-i-la-geltru") en
@@ -875,7 +937,7 @@ function LeadsTable({ leads, showCampana = false, onEditLead, onDeleteLead, onRe
               <tr className="text-left text-xs text-gray-500 uppercase tracking-wide border-b border-gray-200">
                 <th className="pb-2 pr-3 font-medium">Vendedor</th>
                 <th className="pb-2 pr-3 font-medium">Teléfono</th>
-                <th className="pb-2 pr-3 font-medium">Tipo</th>
+                <th className="pb-2 pr-3 font-medium">Inmueble</th>
                 <th className="pb-2 pr-3 font-medium">Precio</th>
                 <th className="pb-2 pr-3 font-medium">Población</th>
                 <th className="pb-2 pr-3 font-medium">Estado</th>
@@ -906,23 +968,11 @@ function LeadsTable({ leads, showCampana = false, onEditLead, onDeleteLead, onRe
                       );
                     })()}
                   </td>
-                  <td className="py-2 pr-3 text-gray-600">
-                    {(() => {
-                      const { resumen, items } = parseCaracteristicas(lead.caracteristicas);
-                      return (
-                        <div>
-                          <span className="capitalize">{lead.tipo || '—'}</span>
-                          {resumen && (
-                            <div
-                              className="text-xs text-gray-500 mt-0.5"
-                              title={items.join('\n')}
-                            >
-                              {resumen}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })()}
+                  <td className="py-2 pr-3">
+                    <LeadCaracteristicas
+                      caracteristicas={lead.caracteristicas}
+                      tipo={lead.tipo}
+                    />
                   </td>
                   <td className="py-2 pr-3 text-gray-800">{fmt(lead.precio)}</td>
                   <td className="py-2 pr-3 text-gray-600">{lead.poblacion || lead.provincia || '—'}</td>
