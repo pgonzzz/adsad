@@ -26,27 +26,66 @@ function cleanPrice(text) {
   return num ? parseInt(num, 10) : null;
 }
 
-// ─── Resolver el CAPTCHA slider propio de Idealista ──────────────────────────
+// ─── Detectar y resolver bloqueos de Idealista ──────────────────────────────
 /**
- * Detecta y resuelve automáticamente el CAPTCHA slider de Idealista.
+ * Detecta si Idealista muestra un bloqueo temporal de IP ("uso indebido")
+ * o el CAPTCHA slider ("desliza hacia la derecha") y los resuelve:
  *
- * Idealista muestra un slider "Desliza hacia la derecha para asegurar tu acceso"
- * cuando detecta demasiadas peticiones. Es un slider simple (no Cloudflare
- * Turnstile), así que se puede resolver simulando un drag de ratón humano.
+ * - Bloqueo IP: espera 10s y recarga la página (el usuario dice que basta
+ *   con refrescar para que vuelva a funcionar).
+ * - Slider CAPTCHA: simula un drag de ratón de izquierda a derecha.
  *
- * @param {Page} page — Puppeteer page
- * @returns {boolean} — true si se detectó y resolvió, false si no había CAPTCHA
+ * @param {Page} page
+ * @returns {boolean} true si se detectó algo y se intentó resolver
  */
 async function detectAndSolveCaptcha(page) {
-  // Detectar si estamos en la página del CAPTCHA
-  const isCaptchaPage = await page.evaluate(() => {
+  const pageState = await page.evaluate(() => {
     const body = (document.body?.innerText || '').toLowerCase();
-    return body.includes('desliza hacia la derecha')
-        || body.includes('muchas peticiones tuyas')
-        || body.includes('velocidad sobrehumana');
+    return {
+      isBlocked: body.includes('uso indebido') || body.includes('acceso se ha bloqueado'),
+      isSlider: body.includes('desliza hacia la derecha') || body.includes('muchas peticiones tuyas') || body.includes('velocidad sobrehumana'),
+    };
   });
 
-  if (!isCaptchaPage) return false;
+  // ── Bloqueo temporal de IP ─────────────────────────────────────────────
+  if (pageState.isBlocked) {
+    console.warn('[Scraper] Bloqueo temporal de IP detectado ("uso indebido"). Esperando 15s y recargando...');
+    await sleep(12000, 18000);
+    try {
+      await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
+      await sleep(2000, 4000);
+    } catch (err) {
+      console.warn('[Scraper] Error recargando tras bloqueo:', err.message);
+    }
+
+    // Verificar si sigue bloqueado tras recargar
+    const stillBlocked = await page.evaluate(() =>
+      (document.body?.innerText || '').toLowerCase().includes('uso indebido')
+    );
+
+    if (stillBlocked) {
+      console.warn('[Scraper] Sigue bloqueado tras recargar. Esperando 60s más...');
+      await sleep(55000, 65000);
+      try {
+        await page.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
+        await sleep(3000, 5000);
+      } catch {}
+    }
+
+    const finalCheck = await page.evaluate(() =>
+      (document.body?.innerText || '').toLowerCase().includes('uso indebido')
+    );
+
+    if (!finalCheck) {
+      console.log('[Scraper] ✓ Bloqueo de IP resuelto tras recargar.');
+    } else {
+      console.error('[Scraper] ✗ Bloqueo persiste. Puede que la IP esté baneada más tiempo.');
+    }
+    return true;
+  }
+
+  // ── CAPTCHA slider ─────────────────────────────────────────────────────
+  if (!pageState.isSlider) return false;
 
   console.log('[Scraper] CAPTCHA slider de Idealista detectado — resolviendo automáticamente...');
 
