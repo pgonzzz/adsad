@@ -746,21 +746,34 @@ async function scrapeIdealista(params, onLead) {
         }
       }
 
-      // ── Fase 2: abrir ficha SOLO para características (sin clic en teléfono) ─
+      // ── Fase 2: abrir ficha para características + vendedor si falta ────────
       for (let i = 0; i < listingData.length; i++) {
         const ld = listingData[i];
         let caracteristicas = null;
+        let nombre_vendedor = ld.nombre_vendedor;
+        let es_particular = ld.es_particular;
 
         try {
-          console.log(`[Scraper] [${i + 1}/${listingData.length}] Características: ${ld.titulo || ld.url}`);
+          console.log(`[Scraper] [${i + 1}/${listingData.length}] Detalles: ${ld.titulo || ld.url}`);
           const detailPage = await browser.newPage();
           await detailPage.goto(ld.url, { waitUntil: 'domcontentloaded', timeout: 20000 });
           await sleep(1000, 2000);
           await detectAndSolveCaptcha(detailPage);
+
+          // Extraer características
           caracteristicas = await extractCaracteristicas(detailPage);
+
+          // Si no tenemos el vendedor del listado (los particulares no
+          // muestran nombre en la tarjeta), extraerlo de la ficha
+          if (!nombre_vendedor) {
+            const sellerDetail = await extractSellerInfo(detailPage);
+            nombre_vendedor = sellerDetail.nombre_vendedor;
+            es_particular = sellerDetail.es_particular;
+          }
+
           await detailPage.close();
         } catch (err) {
-          console.warn('[Scraper] Error extrayendo características:', err.message);
+          console.warn('[Scraper] Error extrayendo detalles:', err.message);
         }
 
         const lead = {
@@ -768,8 +781,8 @@ async function scrapeIdealista(params, onLead) {
           precio: ld.precio,
           url_anuncio: ld.url,
           telefono: ld.telefono,
-          nombre_vendedor: ld.nombre_vendedor,
-          es_particular: ld.es_particular,
+          nombre_vendedor,
+          es_particular,
           caracteristicas,
           poblacion: params.poblacion || null,
           provincia: params.provincia || null,
