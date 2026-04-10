@@ -26,6 +26,157 @@ function cleanPrice(text) {
   return num ? parseInt(num, 10) : null;
 }
 
+// ─── Resolver el CAPTCHA slider propio de Idealista ──────────────────────────
+/**
+ * Detecta y resuelve automáticamente el CAPTCHA slider de Idealista.
+ *
+ * Idealista muestra un slider "Desliza hacia la derecha para asegurar tu acceso"
+ * cuando detecta demasiadas peticiones. Es un slider simple (no Cloudflare
+ * Turnstile), así que se puede resolver simulando un drag de ratón humano.
+ *
+ * @param {Page} page — Puppeteer page
+ * @returns {boolean} — true si se detectó y resolvió, false si no había CAPTCHA
+ */
+async function detectAndSolveCaptcha(page) {
+  // Detectar si estamos en la página del CAPTCHA
+  const isCaptchaPage = await page.evaluate(() => {
+    const body = (document.body?.innerText || '').toLowerCase();
+    return body.includes('desliza hacia la derecha')
+        || body.includes('muchas peticiones tuyas')
+        || body.includes('velocidad sobrehumana');
+  });
+
+  if (!isCaptchaPage) return false;
+
+  console.log('[Scraper] CAPTCHA slider de Idealista detectado — resolviendo automáticamente...');
+
+  // Estrategia: buscar el elemento del slider y arrastrarlo a la derecha.
+  // El slider de Idealista suele ser un <button> o <div> con flechas (→)
+  // dentro de un contenedor. Lo buscamos por varias vías.
+  const solved = await page.evaluate(() => {
+    // Buscar todos los elementos interactivos en la zona del slider
+    const candidates = document.querySelectorAll(
+      'button, [role="slider"], input[type="range"], [class*="slider"], [class*="slide"], [class*="puzzle"], [class*="drag"], [class*="handle"]'
+    );
+
+    // También buscar por contenido de flecha →
+    const allButtons = document.querySelectorAll('button');
+    for (const btn of allButtons) {
+      const txt = (btn.innerText || btn.textContent || '').trim();
+      if (txt === '→' || txt === '›' || txt.includes('→')) {
+        // Marcar este como el posible slider handle
+        btn.setAttribute('data-captcha-handle', 'true');
+        return true;
+      }
+    }
+
+    // Buscar por clase
+    for (const el of candidates) {
+      el.setAttribute('data-captcha-handle', 'true');
+      return true;
+    }
+
+    return false;
+  });
+
+  // Método 1: Arrastrar el elemento marcado con drag simulado
+  const handle = await page.$('[data-captcha-handle="true"]');
+  if (handle) {
+    const box = await handle.boundingBox();
+    if (box) {
+      console.log(`[Scraper] Slider encontrado en (${Math.round(box.x)}, ${Math.round(box.y)}), arrastrando...`);
+      const startX = box.x + box.width / 2;
+      const startY = box.y + box.height / 2;
+      const endX = startX + 300; // Arrastrar 300px a la derecha
+
+      // Simular un drag humano: movimiento gradual con micro-pausas
+      await page.mouse.move(startX, startY);
+      await sleep(200, 400);
+      await page.mouse.down();
+      await sleep(100, 200);
+
+      // Mover en pasos pequeños aleatorios (parecer humano)
+      const steps = 15 + Math.floor(Math.random() * 10);
+      const dx = (endX - startX) / steps;
+      for (let i = 1; i <= steps; i++) {
+        const jitter = (Math.random() - 0.5) * 3; // ±1.5px de ruido vertical
+        await page.mouse.move(
+          startX + dx * i + (Math.random() - 0.5) * 2,
+          startY + jitter
+        );
+        await sleep(20, 60);
+      }
+
+      await sleep(100, 300);
+      await page.mouse.up();
+      console.log('[Scraper] Slider arrastrado. Esperando resultado...');
+
+      // Esperar a que la página cambie (redirect, o el CAPTCHA desaparece)
+      await sleep(2000, 4000);
+
+      // Comprobar si sigue estando el CAPTCHA
+      const stillCaptcha = await page.evaluate(() => {
+        const body = (document.body?.innerText || '').toLowerCase();
+        return body.includes('desliza hacia la derecha') || body.includes('muchas peticiones tuyas');
+      });
+
+      if (!stillCaptcha) {
+        console.log('[Scraper] ✓ CAPTCHA resuelto con éxito.');
+        return true;
+      }
+      console.warn('[Scraper] Primer intento de slider no funcionó, probando método alternativo...');
+    }
+  }
+
+  // Método 2: si el método 1 falló, intentar un approach más amplio —
+  // buscar CUALQUIER elemento arrastrable en la zona central de la página
+  // y hacer drag desde el centro-izquierda hacia centro-derecha.
+  console.log('[Scraper] Intentando drag genérico en la zona del slider...');
+  const viewport = await page.evaluate(() => ({
+    w: window.innerWidth,
+    h: window.innerHeight,
+  }));
+
+  // El slider suele estar centrado verticalmente, un poco arriba del medio
+  const dragY = viewport.h * 0.45;
+  const dragStartX = viewport.w * 0.3;
+  const dragEndX = viewport.w * 0.7;
+
+  await page.mouse.move(dragStartX, dragY);
+  await sleep(300, 500);
+  await page.mouse.down();
+  await sleep(100, 200);
+
+  const genSteps = 20 + Math.floor(Math.random() * 10);
+  const genDx = (dragEndX - dragStartX) / genSteps;
+  for (let i = 1; i <= genSteps; i++) {
+    await page.mouse.move(
+      dragStartX + genDx * i + (Math.random() - 0.5) * 2,
+      dragY + (Math.random() - 0.5) * 4
+    );
+    await sleep(15, 50);
+  }
+
+  await sleep(200, 400);
+  await page.mouse.up();
+
+  await sleep(3000, 5000);
+
+  const stillCaptcha2 = await page.evaluate(() => {
+    const body = (document.body?.innerText || '').toLowerCase();
+    return body.includes('desliza hacia la derecha') || body.includes('muchas peticiones tuyas');
+  });
+
+  if (!stillCaptcha2) {
+    console.log('[Scraper] ✓ CAPTCHA resuelto con drag genérico.');
+    return true;
+  }
+
+  console.error('[Scraper] ✗ No se pudo resolver el CAPTCHA automáticamente. Esperando 60s por si el usuario lo resuelve manualmente...');
+  await sleep(60000, 61000);
+  return true; // Devolver true para que el scraper reintente la página
+}
+
 // ─── Construcción de URL de paginación ───────────────────────────────────────
 /**
  * Dada una URL base de Idealista, devuelve la URL de la página N.
@@ -357,6 +508,8 @@ async function scrapeIdealista(params, onLead) {
       }
       await page.goto(urlFromCampaign, { waitUntil: 'networkidle2', timeout: 30000 });
       await sleep(2000, 4000);
+      // Si aparece CAPTCHA al cargar la búsqueda, resolverlo
+      await detectAndSolveCaptcha(page);
     } else {
       // Prioridad 2: usar pestaña de Idealista ya abierta por el usuario
       page = pages.find(p => p.url().includes('idealista.com'));
@@ -406,14 +559,19 @@ async function scrapeIdealista(params, onLead) {
             const body = (document.body?.innerText || '').toLowerCase();
             return {
               noResults: body.includes('no hemos encontrado ningún anuncio') || body.includes('no se han encontrado inmuebles'),
-              captcha: body.includes('no soy un robot') || body.includes('verificar que eres humano'),
+              captcha: body.includes('desliza hacia la derecha') || body.includes('muchas peticiones tuyas') || body.includes('velocidad sobrehumana') || body.includes('no soy un robot') || body.includes('verificar que eres humano'),
               notFound: body.includes('página no encontrada') || body.includes('la página que buscas no existe'),
             };
           });
 
           if (problemas.captcha) {
-            console.warn(`[Scraper] Página ${pageNum}: CAPTCHA detectado. Esperando 60s para intervención manual...`);
-            await sleep(60000, 61000);
+            // Intentar resolver automáticamente el slider CAPTCHA
+            await detectAndSolveCaptcha(page);
+            // Reintentar la navegación a esta página tras resolver
+            try {
+              await page.goto(nextUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
+              await sleep(2000, 3000);
+            } catch { /* ignorar, lo detectará en el siguiente chequeo */ }
           } else if (problemas.noResults) {
             console.log(`[Scraper] Página ${pageNum}: Idealista dice que no hay más anuncios. Parando.`);
             break;
@@ -448,6 +606,9 @@ async function scrapeIdealista(params, onLead) {
           const detailPage = await browser.newPage();
           await detailPage.goto(listing.url, { waitUntil: 'networkidle2', timeout: 20000 });
           await sleep(1500, 3000);
+
+          // Si Idealista muestra CAPTCHA en la ficha de detalle, resolverlo
+          await detectAndSolveCaptcha(detailPage);
 
           const telefono = await extractPhone(detailPage);
           const { nombre_vendedor, es_particular } = await extractSellerInfo(detailPage);
