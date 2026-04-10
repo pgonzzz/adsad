@@ -586,10 +586,30 @@ async function scrapeIdealista(params, onLead) {
         }
       }
 
-      const listings = await extractListingsFromPage(page, params.precio_min, params.precio_max);
-      console.log(`[Scraper] Encontrados ${listings.length} anuncios en página ${pageNum}`);
+      // ── Fase 1: extraer teléfonos y vendedor DESDE EL LISTADO ────────────
+      // Usamos ElementHandles (page.$$) para poder clicar "Ver teléfono"
+      // directamente en cada tarjeta del listado sin abrir la ficha.
+      const articles = await page.$$('article.item, div[class*="item-info-container"], .items-list article');
 
-      if (listings.length === 0) {
+      // Deduplicar artículos por URL (mismo fix que extractListingsFromPage)
+      const seenUrls = new Set();
+      const uniqueArticles = [];
+      for (const art of articles) {
+        const url = await art.evaluate(el => {
+          const link = el.querySelector('a.item-link, a[href*="/inmueble/"]');
+          return link ? link.href : null;
+        }).catch(() => null);
+        if (!url || !url.includes('/inmueble/') || seenUrls.has(url)) {
+          try { await art.dispose(); } catch {}
+          continue;
+        }
+        seenUrls.add(url);
+        uniqueArticles.push({ handle: art, url });
+      }
+
+      console.log(`[Scraper] Encontrados ${uniqueArticles.length} anuncios en página ${pageNum}`);
+
+      if (uniqueArticles.length === 0) {
         if (pageNum === 1) {
           console.warn('[Scraper] Página 1 sin anuncios — verifica que la URL de la campaña o la pestaña abierta en Chrome apunta a resultados de búsqueda válidos.');
         } else {
@@ -598,65 +618,132 @@ async function scrapeIdealista(params, onLead) {
         break;
       }
 
-      // ── Para cada anuncio abrir detalle ──────────────────────────────────────
-      for (const listing of listings) {
+      // ── Para cada artículo: extraer info del listado + clic "Ver teléfono" ─
+      const listingData = [];
+      for (let i = 0; i < uniqueArticles.length; i++) {
+        const { handle: article, url } = uniqueArticles[i];
         try {
-          console.log(`[Scraper] Procesando: ${listing.titulo || listing.url}`);
+          // Datos básicos de la tarjeta
+          const basic = await article.evaluate(el => {
+            const titleEl = el.querySelector('.item-title, h3.item-title, [class*="item-title"]');
+            const titulo = titleEl ? (titleEl.textContent || '').trim() : '';
+            const priceEl = el.querySelector('.item-price, .price-row, [class*="price"]');
+            const precioText = priceEl ? (priceEl.textContent || '').trim() : '';
+            const precio = parseInt(precioText.replace(/[^\d]/g, ''), 10) || null;
+            return { titulo, precio };
+          });
 
-          const detailPage = await browser.newPage();
-          await detailPage.goto(listing.url, { waitUntil: 'networkidle2', timeout: 20000 });
-          await sleep(1500, 3000);
+          // Filtro de precio
+          if (params.precio_min && basic.precio && basic.precio < params.precio_min) continue;
+          if (params.precio_max && basic.precio && basic.precio > params.precio_max) continue;
 
-          // Si Idealista muestra CAPTCHA en la ficha de detalle, resolverlo
-          await detectAndSolveCaptcha(detailPage);
+          console.log(`[Scraper] [${i + 1}/${uniqueArticles.length}] ${basic.titulo || url}`);
 
-          const telefono = await extractPhone(detailPage);
-          const { nombre_vendedor, es_particular } = await extractSellerInfo(detailPage);
-          const caracteristicas = await extractCaracteristicas(detailPage);
+          // Vendedor/agencia desde la tarjeta del listado
+          const sellerInfo = await article.evaluate(el => {
+            const logoImg = el.querySelector('picture[class*="logo"] img, [class*="logo-branding"] img, [class*="branding"] img, img[class*="logo"]');
+            const nombreLogo = logoImg ? (logoImg.alt || '').trim() : '';
+            const nameEl = el.querySelector('[class*="advertiser"], [class*="professional"], [class*="branding-name"], .item-branding');
+            const nombreTexto = nameEl ? (nameEl.innerText || '').trim() : '';
+            const nombre_vendedor = (nombreLogo || nombreTexto || '').trim() || null;
+            const hasBranding = !!(logoImg || el.querySelector('[class*="branding"], [class*="professional"], [class*="agency"]'));
+            return { nombre_vendedor, es_particular: !hasBranding };
+          }).catch(() => ({ nombre_vendedor: null, es_particular: true }));
 
-          await detailPage.close();
+          // Scroll al artículo y clic en "Ver teléfono" directamente en el listado
+          await article.evaluate(el => el.scrollIntoView({ block: 'center' })).catch(() => {});
+          await sleep(300, 600);
 
-          const lead = {
-            titulo: listing.titulo,
-            precio: listing.precio,
-            url_anuncio: listing.url,
-            telefono,
-            nombre_vendedor,
-            es_particular,
-            caracteristicas,
-            poblacion: params.poblacion || null,
-            provincia: params.provincia || null,
-            tipo: params.tipo || 'piso',
-            portal: 'idealista',
-          };
-          leads.push(lead);
+          let telefono = null;
+          const clicked = await article.evaluate(el => {
+            const candidates = el.querySelectorAll('button, a, [role="button"]');
+            for (const c of candidates) {
+              const txt = ((c.innerText || c.textContent || '') + ' ' + (c.getAttribute('aria-label') || '')).toLowerCase();
+              if (txt.includes('ver teléfono') || txt.includes('ver telefono') || txt.includes('mostrar teléfono') || txt.includes('mostrar telefono')) {
+                c.click();
+                return true;
+              }
+            }
+            const byClass = el.querySelector('button[class*="phone"]:not([disabled]), a[class*="phone"]');
+            if (byClass) { byClass.click(); return true; }
+            const icon = el.querySelector('[class*="icon-phone"], svg[class*="phone"]');
+            if (icon) { const btn = icon.closest('button, a, [role="button"]'); if (btn) { btn.click(); return true; } }
+            return false;
+          }).catch(() => false);
 
-          // Streaming: enviar al CRM en cuanto se tiene el lead (no al final)
-          if (onLead) {
-            try { await onLead(lead); } catch (e) { /* no bloquear el scraping */ }
+          if (clicked) {
+            await sleep(700, 1400);
+            // Buscar el teléfono revelado en el artículo o en un modal
+            const rawPhone = await article.evaluate(el => {
+              const re = /(?:\+?34[\s-]?)?[679]\d{2}[\s-]?\d{2,3}[\s-]?\d{2,3}/;
+              const tel = el.querySelector('a[href^="tel:"]');
+              if (tel) return tel.href.replace('tel:', '');
+              const match = (el.innerText || '').match(re);
+              return match ? match[0] : null;
+            }).catch(() => null);
+
+            if (rawPhone) {
+              const clean = rawPhone.replace(/[\s\-+]/g, '').replace(/^34/, '');
+              telefono = /^[679]\d{8}$/.test(clean) ? clean : null;
+            }
+
+            // Cerrar cualquier modal que se haya abierto
+            try { await page.keyboard.press('Escape'); await sleep(200, 400); } catch {}
           }
 
-          await sleep(2000, 4000);
+          if (telefono) {
+            console.log(`[Scraper]   ✓ Tel: ${telefono} · ${sellerInfo.nombre_vendedor || '(particular)'}`);
+          } else {
+            console.log(`[Scraper]   ✗ Sin teléfono revelable`);
+          }
 
+          listingData.push({ url, ...basic, ...sellerInfo, telefono });
+          await sleep(1000, 2000);
         } catch (err) {
-          console.warn('[Scraper] Error procesando anuncio:', err.message);
-          const lead = {
-            titulo: listing.titulo,
-            precio: listing.precio,
-            url_anuncio: listing.url,
-            telefono: null,
-            nombre_vendedor: null,
-            es_particular: true,
-            poblacion: params.poblacion || null,
-            provincia: params.provincia || null,
-            tipo: params.tipo || 'piso',
-            portal: 'idealista',
-          };
-          leads.push(lead);
-          if (onLead) {
-            try { await onLead(lead); } catch (e) { /* ignore */ }
-          }
+          console.warn('[Scraper] Error extrayendo del listado:', err.message);
+          listingData.push({ url, titulo: '', precio: null, telefono: null, nombre_vendedor: null, es_particular: true });
+        } finally {
+          try { await article.dispose(); } catch {}
         }
+      }
+
+      // ── Fase 2: abrir ficha SOLO para características (sin clic en teléfono) ─
+      for (let i = 0; i < listingData.length; i++) {
+        const ld = listingData[i];
+        let caracteristicas = null;
+
+        try {
+          console.log(`[Scraper] [${i + 1}/${listingData.length}] Características: ${ld.titulo || ld.url}`);
+          const detailPage = await browser.newPage();
+          await detailPage.goto(ld.url, { waitUntil: 'domcontentloaded', timeout: 20000 });
+          await sleep(1000, 2000);
+          await detectAndSolveCaptcha(detailPage);
+          caracteristicas = await extractCaracteristicas(detailPage);
+          await detailPage.close();
+        } catch (err) {
+          console.warn('[Scraper] Error extrayendo características:', err.message);
+        }
+
+        const lead = {
+          titulo: ld.titulo,
+          precio: ld.precio,
+          url_anuncio: ld.url,
+          telefono: ld.telefono,
+          nombre_vendedor: ld.nombre_vendedor,
+          es_particular: ld.es_particular,
+          caracteristicas,
+          poblacion: params.poblacion || null,
+          provincia: params.provincia || null,
+          tipo: params.tipo || 'piso',
+          portal: 'idealista',
+        };
+        leads.push(lead);
+
+        if (onLead) {
+          try { await onLead(lead); } catch (e) { /* no bloquear el scraping */ }
+        }
+
+        await sleep(1500, 3000);
       }
 
       await sleep(3000, 6000);
