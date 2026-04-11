@@ -80,12 +80,12 @@ async function sendHeartbeat() {
   }
 }
 
-// ─── Chrome on-demand ─────────────────────────────────────────────────────────
-// Lanza Chrome con el puerto de debugging (9222) solo si todavía no está
-// corriendo. Así el usuario no tiene que tener Chrome abierto al iniciar el
-// Mac — solo se abre cuando hay una tarea de scraping que lo necesita. Una
-// vez abierto, se queda vivo hasta que apagues el Mac (para no tener que
-// relanzarlo en cada nueva tarea).
+// ─── Chrome on-demand (cross-platform) ──────────────────────────────────────
+// Lanza Chrome con el puerto de debugging (9222) solo cuando hay una tarea
+// pendiente. Funciona en macOS, Windows y Linux detectando el binario de
+// Chrome según el sistema operativo. No depende de scripts .sh ni .bat.
+
+const os = require('os');
 
 function isPort9222Open(timeoutMs = 1000) {
   return new Promise((resolve) => {
@@ -105,6 +105,56 @@ function isPort9222Open(timeoutMs = 1000) {
   });
 }
 
+/**
+ * Localiza el binario de Chrome en el sistema actual.
+ * Devuelve la ruta absoluta o null si no lo encuentra.
+ */
+function findChromePath() {
+  const platform = process.platform;
+
+  // macOS
+  if (platform === 'darwin') {
+    const candidates = [
+      '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      '/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary',
+      path.join(os.homedir(), 'Applications/Google Chrome.app/Contents/MacOS/Google Chrome'),
+    ];
+    for (const c of candidates) {
+      if (fs.existsSync(c)) return c;
+    }
+  }
+
+  // Windows
+  if (platform === 'win32') {
+    const candidates = [
+      'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+      'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+      path.join(os.homedir(), 'AppData\\Local\\Google\\Chrome\\Application\\chrome.exe'),
+      path.join(process.env['ProgramFiles'] || '', 'Google\\Chrome\\Application\\chrome.exe'),
+      path.join(process.env['ProgramFiles(x86)'] || '', 'Google\\Chrome\\Application\\chrome.exe'),
+    ];
+    for (const c of candidates) {
+      if (c && fs.existsSync(c)) return c;
+    }
+  }
+
+  // Linux
+  if (platform === 'linux') {
+    const candidates = [
+      '/usr/bin/google-chrome',
+      '/usr/bin/google-chrome-stable',
+      '/usr/bin/chromium-browser',
+      '/usr/bin/chromium',
+      '/snap/bin/chromium',
+    ];
+    for (const c of candidates) {
+      if (fs.existsSync(c)) return c;
+    }
+  }
+
+  return null;
+}
+
 async function ensureChromeRunning() {
   // Ya corre: nada que hacer
   if (await isPort9222Open()) {
@@ -112,22 +162,34 @@ async function ensureChromeRunning() {
     return;
   }
 
-  // Lanzarlo mediante el script start-chrome.sh
-  const scriptPath = path.join(__dirname, 'start-chrome.sh');
-  if (!fs.existsSync(scriptPath)) {
-    console.error('[Chrome] No encontrado:', scriptPath);
+  const chromePath = findChromePath();
+  if (!chromePath) {
+    console.error('[Chrome] No se encontró Google Chrome instalado en este sistema.');
+    console.error('[Chrome] Instálalo desde https://www.google.com/chrome y reintenta.');
     return;
   }
 
-  console.log('[Chrome] No está corriendo. Lanzándolo ahora...');
+  // Directorio de perfil dedicado (no toca el Chrome normal del usuario)
+  const userDataDir = path.join(os.homedir(), '.chrome-scraper');
+  const args = [
+    '--remote-debugging-port=9222',
+    `--user-data-dir=${userDataDir}`,
+    '--no-first-run',
+    '--no-default-browser-check',
+    '--disable-blink-features=AutomationControlled',
+    'https://www.idealista.com',
+  ];
+
+  console.log(`[Chrome] No está corriendo. Lanzando: ${chromePath}`);
   try {
-    const child = spawn('bash', [scriptPath], {
+    const child = spawn(chromePath, args, {
       detached: true,
       stdio: 'ignore',
+      windowsHide: false, // queremos que la ventana sea visible
     });
     child.unref();
   } catch (err) {
-    console.error('[Chrome] Error lanzando start-chrome.sh:', err.message);
+    console.error('[Chrome] Error lanzando Chrome:', err.message);
     return;
   }
 

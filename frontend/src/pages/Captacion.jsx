@@ -242,6 +242,17 @@ function AgentSetupModal({ open, onClose }) {
   const [keyData, setKeyData] = useState(null);
   const [copied, setCopied] = useState(false);
 
+  // Auto-detectar el SO del navegador para mostrar las instrucciones
+  // correctas por defecto. El usuario puede cambiar a la otra pestaña.
+  const detectedOS = (() => {
+    const ua = (typeof navigator !== 'undefined' ? navigator.userAgent : '').toLowerCase();
+    if (ua.includes('mac')) return 'mac';
+    if (ua.includes('win')) return 'windows';
+    if (ua.includes('linux')) return 'linux';
+    return 'mac';
+  })();
+  const [osTab, setOsTab] = useState(detectedOS);
+
   useEffect(() => {
     if (open && !keyData) {
       captacionApi.getMyAgentKey().then(setKeyData).catch(() => {});
@@ -293,50 +304,71 @@ function AgentSetupModal({ open, onClose }) {
           </p>
         </div>
 
-        {/* Instrucciones de instalación */}
+        {/* Tabs de SO */}
         <div>
-          <p className="text-sm font-semibold text-gray-800 mb-2">Instrucciones de instalación</p>
-
-          <details className="mb-2 bg-gray-50 rounded-lg border border-gray-200">
-            <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-gray-700">
+          <p className="text-sm font-semibold text-gray-800 mb-2">Instalación (solo 1 vez)</p>
+          <div className="flex gap-1 mb-3 bg-gray-100 rounded-lg p-1 w-fit">
+            <button
+              onClick={() => setOsTab('mac')}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                osTab === 'mac' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
               🍎 macOS
-            </summary>
-            <div className="px-3 pb-3 text-xs text-gray-600 space-y-2">
-              <p>1. Abre Terminal.</p>
-              <p>2. Clona el repo y entra en él:</p>
+            </button>
+            <button
+              onClick={() => setOsTab('windows')}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                osTab === 'windows' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              🪟 Windows
+            </button>
+          </div>
+
+          {osTab === 'mac' && (
+            <div className="text-xs text-gray-600 space-y-2 bg-gray-50 rounded-lg border border-gray-200 p-3">
+              <p className="font-medium text-gray-800">Requisitos: tener Node.js y Git instalados.</p>
+              <p>1. Abre Terminal y ejecuta estos comandos:</p>
               <pre className="bg-gray-900 text-gray-100 p-2 rounded text-[11px] overflow-x-auto">{`git clone https://github.com/pgonzzz/crm-pisalia.git ~/Desktop/crm-pisalia
 cd ~/Desktop/crm-pisalia/agent
-npm install`}</pre>
-              <p>3. Crea un fichero <code className="bg-gray-200 px-1 rounded">.env</code> en <code className="bg-gray-200 px-1 rounded">agent/</code> con tu clave:</p>
-              <pre className="bg-gray-900 text-gray-100 p-2 rounded text-[11px] overflow-x-auto">{`BACKEND_URL=https://crm-pisalia-production.up.railway.app
-AGENT_KEY=${keyData?.agent_key || 'TU_CLAVE_AQUI'}`}</pre>
-              <p>4. Instala el servicio para que arranque solo:</p>
-              <pre className="bg-gray-900 text-gray-100 p-2 rounded text-[11px] overflow-x-auto">{`./install-launchd.sh`}</pre>
-              <p>5. Al arrancar, aparecerá un QR de WhatsApp en esta misma página. Escanéalo con tu móvil (WhatsApp → Dispositivos vinculados).</p>
+npm install
+./install-launchd.sh`}</pre>
+              <p>2. El script te pedirá tu clave de agente. Pégala (la has copiado arriba).</p>
+              <p className="text-green-700">
+                ✓ Listo. El agente arrancará solo cada vez que enciendas el Mac.
+                Chrome se abrirá automáticamente cuando el CRM pida scraping.
+              </p>
+              <p>3. En unos segundos, vuelve a esta página del CRM. Aparecerá un QR grande. Escanéalo con WhatsApp desde tu móvil (⋮ → Dispositivos vinculados → Vincular un dispositivo).</p>
             </div>
-          </details>
+          )}
 
-          <details className="bg-gray-50 rounded-lg border border-gray-200">
-            <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-gray-700">
-              🪟 Windows
-            </summary>
-            <div className="px-3 pb-3 text-xs text-gray-600 space-y-2">
-              <p>1. Instala <a href="https://nodejs.org" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Node.js LTS</a> y <a href="https://git-scm.com/download/win" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Git for Windows</a>.</p>
-              <p>2. Abre <strong>PowerShell</strong> y ejecuta:</p>
+          {osTab === 'windows' && (
+            <div className="text-xs text-gray-600 space-y-2 bg-gray-50 rounded-lg border border-gray-200 p-3">
+              <p className="font-medium text-gray-800">Requisitos: Node.js LTS y Git for Windows instalados.</p>
+              <ul className="list-disc list-inside ml-1 space-y-0.5">
+                <li><a href="https://nodejs.org" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Descargar Node.js LTS</a></li>
+                <li><a href="https://git-scm.com/download/win" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Descargar Git for Windows</a></li>
+                <li><a href="https://www.google.com/chrome" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Descargar Google Chrome</a> (si no lo tienes)</li>
+              </ul>
+              <p className="mt-2">1. Abre <strong>PowerShell</strong> y ejecuta:</p>
               <pre className="bg-gray-900 text-gray-100 p-2 rounded text-[11px] overflow-x-auto">{`git clone https://github.com/pgonzzz/crm-pisalia.git $env:USERPROFILE\\Desktop\\crm-pisalia
 cd $env:USERPROFILE\\Desktop\\crm-pisalia\\agent
 npm install`}</pre>
-              <p>3. Crea un fichero <code className="bg-gray-200 px-1 rounded">.env</code> en <code className="bg-gray-200 px-1 rounded">agent\\</code> con:</p>
-              <pre className="bg-gray-900 text-gray-100 p-2 rounded text-[11px] overflow-x-auto">{`BACKEND_URL=https://crm-pisalia-production.up.railway.app
-AGENT_KEY=${keyData?.agent_key || 'TU_CLAVE_AQUI'}`}</pre>
-              <p>4. Arranca el agente:</p>
-              <pre className="bg-gray-900 text-gray-100 p-2 rounded text-[11px] overflow-x-auto">{`npm start`}</pre>
-              <p className="text-amber-700">
-                ⚠ En Windows todavía no tenemos instalador auto-start. Para que corra en segundo plano al encender el PC, déjalo abierto en una ventana de PowerShell o usa el Task Scheduler. Puedo ayudarte con esto cuando quieras.
+              <p>2. Haz <strong>doble clic</strong> en <code className="bg-gray-200 px-1 rounded">install-windows.bat</code> (en la carpeta <code className="bg-gray-200 px-1 rounded">agent\\</code>).</p>
+              <p>3. El instalador te pedirá tu clave de agente. Pégala (la has copiado arriba) y pulsa Enter.</p>
+              <p className="text-green-700">
+                ✓ Listo. El agente arranca ahora mismo en segundo plano (sin ventana visible)
+                y se lanzará solo cada vez que inicies sesión en Windows. Chrome se abrirá
+                automáticamente cuando haya una tarea de scraping.
               </p>
-              <p>5. Cuando el agente arranque, aparecerá un QR en el CRM. Escanéalo con tu WhatsApp.</p>
+              <p>4. En unos segundos, vuelve a esta página del CRM. Aparecerá un QR grande. Escanéalo con WhatsApp desde tu móvil (⋮ → Dispositivos vinculados → Vincular un dispositivo).</p>
+              <p className="text-amber-700 text-[11px] mt-2">
+                💡 Si el instalador se queja de que no puede crear la tarea programada,
+                haz clic derecho en <code className="bg-gray-200 px-1 rounded">install-windows.bat</code> → "Ejecutar como administrador".
+              </p>
             </div>
-          </details>
+          )}
         </div>
 
         <div className="flex justify-end pt-2 border-t border-gray-100">

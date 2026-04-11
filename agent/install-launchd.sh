@@ -53,7 +53,29 @@ echo "      hay una tarea de scraping pendiente (bajo demanda)."
 echo ""
 
 # ─── Dar permisos al script de Chrome ────────────────────────────────────────
-chmod +x "$AGENT_DIR/start-chrome.sh"
+chmod +x "$AGENT_DIR/start-chrome.sh" 2>/dev/null || true
+
+# ─── Pedir la clave del agente si no hay .env todavía ────────────────────────
+ENV_FILE="$AGENT_DIR/.env"
+if [ ! -f "$ENV_FILE" ]; then
+  echo ""
+  echo "No encontré $ENV_FILE. Voy a pedirte tu clave de agente."
+  echo "Cópiala desde el CRM (Captación → botón 'Configurar') y pégala aquí:"
+  echo ""
+  read -p "Clave de agente: " AGENT_KEY_INPUT
+  if [ -z "$AGENT_KEY_INPUT" ]; then
+    echo "[WARN] No has introducido clave. Usaré la clave legacy por compat."
+    echo "       Puedes editar $ENV_FILE luego para poner tu clave real."
+    AGENT_KEY_INPUT="captacion-agent-2024"
+  fi
+  cat > "$ENV_FILE" <<ENVEOF
+BACKEND_URL=https://crm-pisalia-production.up.railway.app
+AGENT_KEY=$AGENT_KEY_INPUT
+ENVEOF
+  echo "[OK] $ENV_FILE creado."
+else
+  echo "[INFO] Ya existe $ENV_FILE, manteniendo tu configuración."
+fi
 
 # ─── Parar cualquier servicio anterior ───────────────────────────────────────
 echo "→ Parando servicios anteriores (si los hay)..."
