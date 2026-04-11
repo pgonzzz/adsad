@@ -22,14 +22,15 @@ const PROP_ESTADOS = [
 
 function StatCard({ label, value, icon: Icon, color, to, sub }) {
   const content = (
-    <div className={`bg-white rounded-xl border border-gray-200 p-5 flex items-center gap-4 shadow-sm ${to ? 'hover:shadow-md transition-shadow cursor-pointer' : ''}`}>
-      <div className={`p-3 rounded-lg ${color} shrink-0`}>
-        <Icon size={20} className="text-white" />
+    <div className={`bg-white rounded-xl border border-gray-200 p-3 sm:p-5 flex items-center gap-3 sm:gap-4 shadow-sm ${to ? 'hover:shadow-md transition-shadow cursor-pointer' : ''}`}>
+      <div className={`p-2.5 sm:p-3 rounded-lg ${color} shrink-0`}>
+        <Icon size={18} className="text-white sm:hidden" />
+        <Icon size={20} className="text-white hidden sm:block" />
       </div>
       <div className="min-w-0">
-        <p className="text-2xl font-bold text-gray-900">{value ?? '—'}</p>
-        <p className="text-sm text-gray-500 leading-tight">{label}</p>
-        {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
+        <p className="text-xl sm:text-2xl font-bold text-gray-900">{value ?? '—'}</p>
+        <p className="text-xs sm:text-sm text-gray-500 leading-tight">{label}</p>
+        {sub && <p className="text-[10px] sm:text-xs text-gray-400 mt-0.5 truncate">{sub}</p>}
       </div>
     </div>
   );
@@ -133,11 +134,11 @@ export default function Dashboard() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-gray-900 mb-1">Dashboard</h1>
-      <p className="text-gray-500 text-sm mb-6">Resumen general del negocio</p>
+      <h1 className="text-xl sm:text-2xl font-bold text-gray-900 mb-1">Dashboard</h1>
+      <p className="text-gray-500 text-xs sm:text-sm mb-4 sm:mb-6">Resumen general del negocio</p>
 
       {/* Stat cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4 sm:mb-6">
         <StatCard
           label="Inversores activos"
           value={stats?.inversoresActivos}
@@ -173,7 +174,7 @@ export default function Dashboard() {
       </div>
 
       {/* Charts row */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 sm:gap-4">
         <BarChart
           title="Inversores por etapa"
           data={pipelineData}

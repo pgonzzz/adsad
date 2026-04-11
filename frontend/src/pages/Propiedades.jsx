@@ -210,9 +210,9 @@ export default function Propiedades() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Propiedades</h1>
-        <button onClick={openCreate} className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700">
+      <div className="flex items-center justify-between mb-4 sm:mb-6 gap-3 flex-wrap">
+        <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Propiedades</h1>
+        <button onClick={openCreate} className="px-3 sm:px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 whitespace-nowrap">
           + Nueva propiedad
         </button>
       </div>
@@ -298,7 +298,7 @@ export default function Propiedades() {
         )}
 
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm min-w-[900px]">
             <thead>
               <tr className="border-b bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
                 <th className="px-4 py-3">Fotos</th>

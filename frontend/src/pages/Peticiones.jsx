@@ -203,12 +203,12 @@ export default function Peticiones() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Peticiones</h1>
-          <p className="text-sm text-gray-500 mt-0.5">{filtered.length} petición{filtered.length !== 1 ? 'es' : ''}</p>
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Peticiones</h1>
+          <p className="text-xs sm:text-sm text-gray-500 mt-0.5">{filtered.length} petición{filtered.length !== 1 ? 'es' : ''}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {/* Toggle vista */}
           <div className="flex border border-gray-300 rounded-lg overflow-hidden">
             <button
@@ -326,7 +326,7 @@ export default function Peticiones() {
       ) : (
         // ── Vista Lista ──
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm min-w-[900px]">
             <thead>
               <tr className="border-b bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
                 <th className="px-4 py-3">Inversor</th>

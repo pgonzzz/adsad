@@ -258,7 +258,7 @@ export default function PropiedadDetalle() {
         <div className="flex items-start gap-4 flex-wrap">
           <div className="flex-1">
             <div className="flex items-center gap-3 flex-wrap mb-2">
-              <h1 className="text-2xl font-bold text-gray-900 capitalize">{propiedad.tipo}</h1>
+              <h1 className="text-xl sm:text-2xl font-bold text-gray-900 capitalize">{propiedad.tipo}</h1>
               <Badge value={propiedad.estado} />
               {propiedad.acepta_financiacion && (
                 <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-medium">Acepta financiación</span>

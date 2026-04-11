@@ -53,19 +53,19 @@ export default function Proveedores() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Proveedores</h1>
-        <button onClick={openCreate} className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700">
+      <div className="flex items-center justify-between mb-4 sm:mb-6 gap-3 flex-wrap">
+        <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Proveedores</h1>
+        <button onClick={openCreate} className="px-3 sm:px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 whitespace-nowrap">
           + Nuevo proveedor
         </button>
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
-        <div className="p-4 border-b flex gap-3">
+        <div className="p-4 border-b flex gap-3 flex-wrap">
           <input
             type="text" placeholder="Buscar..."
             value={search} onChange={e => setSearch(e.target.value)}
-            className="w-full max-w-xs px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full sm:max-w-xs px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
           <select value={filtroTipo} onChange={e => setFiltroTipo(e.target.value)}
             className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
@@ -74,7 +74,8 @@ export default function Proveedores() {
             <option value="propietario">Propietario</option>
           </select>
         </div>
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[720px]">
           <thead>
             <tr className="border-b bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
               <th className="px-4 py-3">Tipo</th>
@@ -107,6 +108,7 @@ export default function Proveedores() {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
 
       <Modal isOpen={modal} onClose={() => setModal(false)} title={editing ? 'Editar proveedor' : 'Nuevo proveedor'}>

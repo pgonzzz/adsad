@@ -70,12 +70,12 @@ export default function Operaciones() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Operaciones</h1>
+      <div className="flex items-center justify-between mb-4 sm:mb-6">
+        <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Operaciones</h1>
       </div>
 
       {/* Stats rápidas */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-4 sm:mb-6">
         {[
           { label: 'En curso', value: ops.filter(o => o.estado === 'en_curso').length },
           { label: 'Volumen cerrado', value: fmt(volumen) },
@@ -99,7 +99,7 @@ export default function Operaciones() {
           </select>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-sm min-w-[800px]">
             <thead>
               <tr className="border-b bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
                 <th className="px-4 py-3">Inversor</th>

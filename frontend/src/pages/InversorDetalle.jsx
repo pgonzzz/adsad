@@ -135,7 +135,7 @@ export default function InversorDetalle() {
         <div className="flex items-start justify-between">
           <div className="flex-1">
             <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="text-2xl font-bold text-gray-900">
+              <h1 className="text-xl sm:text-2xl font-bold text-gray-900">
                 {[inversor.nombre, inversor.apellidos].filter(Boolean).join(' ')}
               </h1>
               <PipelineTag value={inversor.pipeline} />

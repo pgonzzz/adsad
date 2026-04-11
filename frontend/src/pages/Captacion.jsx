@@ -932,8 +932,8 @@ function LeadsTable({ leads, showCampana = false, onEditLead, onDeleteLead, onRe
           {leads.length === 0 ? 'No hay leads aún. Inicia un scraping para obtener leads.' : 'No hay leads con este estado.'}
         </div>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+        <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
+          <table className="w-full text-sm min-w-[900px]">
             <thead>
               <tr className="text-left text-xs text-gray-500 uppercase tracking-wide border-b border-gray-200">
                 <th className="pb-2 pr-3 font-medium">Vendedor</th>
@@ -1197,7 +1197,7 @@ function CampanaDetail({ campana, onBack, onRefresh, onEditLead, onDeleteLead, a
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-5 gap-3 mb-4">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 sm:gap-3 mb-4">
         {[
           { label: 'Total leads', value: stats.total, color: 'text-gray-700' },
           { label: 'Nuevos', value: stats.nuevo, color: 'text-blue-600' },
@@ -1381,7 +1381,7 @@ export default function Captacion() {
   // Si hay campaña seleccionada, mostrar detalle
   if (selectedCampana) {
     return (
-      <div className="p-6 max-w-6xl mx-auto">
+      <div className="max-w-6xl mx-auto">
         <CampanaDetail
           campana={selectedCampana}
           onBack={() => { navigate('/captacion'); loadCampanas(); loadAllLeads(); }}
@@ -1401,18 +1401,18 @@ export default function Captacion() {
   }
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
+    <div className="max-w-6xl mx-auto">
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Captación</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Scraping automático y contacto por WhatsApp</p>
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Captación</h1>
+          <p className="text-xs sm:text-sm text-gray-500 mt-0.5">Scraping automático y contacto por WhatsApp</p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex items-center justify-between sm:justify-end gap-3 flex-wrap">
           <AgentStatusBar status={agentStatus} onRefresh={loadAgentStatus} />
           <button
             onClick={openCreate}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium"
+            className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium whitespace-nowrap"
           >
             <Plus size={16} />
             Nueva campaña
@@ -1462,8 +1462,8 @@ export default function Captacion() {
             </button>
           </div>
         ) : (
-          <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-            <table className="w-full text-sm">
+          <div className="bg-white border border-gray-200 rounded-xl overflow-x-auto">
+            <table className="w-full text-sm min-w-[720px]">
               <thead>
                 <tr className="text-left text-xs text-gray-500 uppercase tracking-wide border-b border-gray-200 bg-gray-50">
                   <th className="px-4 py-3 font-medium">Nombre</th>
