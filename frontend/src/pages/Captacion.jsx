@@ -453,9 +453,243 @@ function QRPanel({ qrCode }) {
 }
 
 // ─── Modal de campaña ─────────────────────────────────────────────────────────
+// ─── Modal de gestión de plantillas de mensajes ──────────────────────────────
+// Permite crear, editar y eliminar plantillas reutilizables de mensajes de
+// WhatsApp. Cada plantilla tiene un nombre, un texto (con variables como
+// {{nombre}}, {{precio}}, etc.) y un tipo: 'inicial' (primer contacto) o
+// 'followup' (recordatorio).
+function PlantillasModal({ open, onClose }) {
+  const [plantillas, setPlantillas] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState(null); // plantilla que se está editando o creando
+  const [saving, setSaving] = useState(false);
+
+  const loadPlantillas = useCallback(() => {
+    setLoading(true);
+    captacionApi.getPlantillas()
+      .then(setPlantillas)
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (open) loadPlantillas();
+  }, [open, loadPlantillas]);
+
+  const startCreate = (tipo = 'inicial') => {
+    setEditing({ id: null, nombre: '', texto: '', tipo });
+  };
+
+  const startEdit = (p) => {
+    setEditing({ ...p });
+  };
+
+  const handleSave = async () => {
+    if (!editing.nombre.trim() || !editing.texto.trim()) {
+      alert('Pon un nombre y un texto para la plantilla.');
+      return;
+    }
+    setSaving(true);
+    try {
+      if (editing.id) {
+        await captacionApi.updatePlantilla(editing.id, {
+          nombre: editing.nombre,
+          texto: editing.texto,
+          tipo: editing.tipo,
+        });
+      } else {
+        await captacionApi.createPlantilla({
+          nombre: editing.nombre,
+          texto: editing.texto,
+          tipo: editing.tipo,
+        });
+      }
+      setEditing(null);
+      loadPlantillas();
+    } catch (err) {
+      alert('Error guardando: ' + err.message);
+    }
+    setSaving(false);
+  };
+
+  const handleDelete = async (p) => {
+    if (!confirm(`¿Eliminar la plantilla "${p.nombre}"?`)) return;
+    try {
+      await captacionApi.deletePlantilla(p.id);
+      loadPlantillas();
+    } catch (err) {
+      alert('Error eliminando: ' + err.message);
+    }
+  };
+
+  const plantillasIniciales = plantillas.filter(p => p.tipo === 'inicial');
+  const plantillasFollowup = plantillas.filter(p => p.tipo === 'followup');
+
+  return (
+    <Modal isOpen={open} onClose={onClose} title="Plantillas de mensajes" size="lg">
+      {editing ? (
+        // ── Vista de edición ──
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Tipo</label>
+            <select
+              value={editing.tipo}
+              onChange={e => setEditing({ ...editing, tipo: e.target.value })}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+            >
+              <option value="inicial">Inicial (primer contacto)</option>
+              <option value="followup">Follow-up (recordatorio)</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Nombre de la plantilla</label>
+            <input
+              type="text"
+              value={editing.nombre}
+              onChange={e => setEditing({ ...editing, nombre: e.target.value })}
+              placeholder="Ej: Primer contacto formal"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">
+              Texto del mensaje
+              <span className="ml-2 text-gray-400 font-normal">
+                Variables: {'{{nombre}}'} {'{{precio}}'} {'{{poblacion}}'} {'{{tipo}}'} {'{{url}}'}
+              </span>
+            </label>
+            <textarea
+              rows={5}
+              value={editing.texto}
+              onChange={e => setEditing({ ...editing, texto: e.target.value })}
+              placeholder="Hola {{nombre}}, te contacto en relación a tu anuncio..."
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none"
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-2 border-t border-gray-100">
+            <button
+              onClick={() => setEditing(null)}
+              className="px-3 py-2 text-sm text-gray-600 hover:text-gray-800"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium disabled:opacity-50"
+            >
+              {saving ? 'Guardando...' : (editing.id ? 'Guardar cambios' : 'Crear plantilla')}
+            </button>
+          </div>
+        </div>
+      ) : (
+        // ── Vista de lista ──
+        <div className="space-y-4">
+          {loading ? (
+            <div className="text-center py-8 text-gray-400 text-sm">Cargando plantillas...</div>
+          ) : (
+            <>
+              {/* Sección: plantillas iniciales */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-semibold text-gray-800">📨 Inicial (primer contacto)</h3>
+                  <button
+                    onClick={() => startCreate('inicial')}
+                    className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 font-medium"
+                  >
+                    <Plus size={12} /> Nueva
+                  </button>
+                </div>
+                {plantillasIniciales.length === 0 ? (
+                  <div className="text-xs text-gray-400 italic px-3 py-2 bg-gray-50 rounded-lg">
+                    No hay plantillas iniciales. Crea la primera.
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    {plantillasIniciales.map(p => (
+                      <PlantillaRow key={p.id} plantilla={p} onEdit={() => startEdit(p)} onDelete={() => handleDelete(p)} />
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Sección: plantillas follow-up */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-sm font-semibold text-gray-800">🔁 Follow-up (recordatorio)</h3>
+                  <button
+                    onClick={() => startCreate('followup')}
+                    className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 font-medium"
+                  >
+                    <Plus size={12} /> Nueva
+                  </button>
+                </div>
+                {plantillasFollowup.length === 0 ? (
+                  <div className="text-xs text-gray-400 italic px-3 py-2 bg-gray-50 rounded-lg">
+                    No hay plantillas de follow-up. Crea la primera.
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    {plantillasFollowup.map(p => (
+                      <PlantillaRow key={p.id} plantilla={p} onEdit={() => startEdit(p)} onDelete={() => handleDelete(p)} />
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex justify-end pt-2 border-t border-gray-100">
+                <button
+                  onClick={onClose}
+                  className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+                >
+                  Cerrar
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
+function PlantillaRow({ plantilla, onEdit, onDelete }) {
+  return (
+    <div className="flex items-start gap-2 p-2 bg-gray-50 rounded-lg border border-gray-200 hover:border-gray-300 transition-colors">
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-gray-800 truncate">{plantilla.nombre}</p>
+        <p className="text-xs text-gray-500 line-clamp-2 mt-0.5">{plantilla.texto}</p>
+      </div>
+      <div className="flex items-center gap-0.5 shrink-0">
+        <button
+          onClick={onEdit}
+          className="p-1.5 text-gray-400 hover:text-blue-600 rounded transition-colors"
+          title="Editar"
+        >
+          <Pencil size={13} />
+        </button>
+        <button
+          onClick={onDelete}
+          className="p-1.5 text-gray-400 hover:text-red-600 rounded transition-colors"
+          title="Eliminar"
+        >
+          <Trash2 size={13} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function CampanaModal({ open, onClose, editing, onSaved, onSaveAndScrape }) {
   const [form, setForm] = useState(emptyCampana);
   const [saving, setSaving] = useState(false);
+  const [plantillas, setPlantillas] = useState([]);
+
+  // Cargar plantillas disponibles cuando se abre el modal
+  useEffect(() => {
+    if (open) {
+      captacionApi.getPlantillas().then(setPlantillas).catch(() => {});
+    }
+  }, [open]);
 
   useEffect(() => {
     if (open) {
@@ -495,6 +729,36 @@ function CampanaModal({ open, onClose, editing, onSaved, onSaveAndScrape }) {
       return next;
     });
   };
+
+  // Guardar el texto actual de un textarea como plantilla reutilizable
+  const saveAsTemplate = async (tipo) => {
+    const texto = tipo === 'inicial' ? form.plantilla_mensaje : form.plantilla_followup;
+    if (!texto || !texto.trim()) {
+      alert('El texto está vacío. Escribe algo antes de guardarlo como plantilla.');
+      return;
+    }
+    const nombre = prompt(`Nombre para la plantilla ${tipo === 'inicial' ? 'inicial' : 'de follow-up'}:`);
+    if (!nombre || !nombre.trim()) return;
+    try {
+      const nueva = await captacionApi.createPlantilla({ nombre: nombre.trim(), texto, tipo });
+      setPlantillas(prev => [nueva, ...prev]);
+      alert(`✓ Plantilla "${nombre}" guardada.`);
+    } catch (err) {
+      alert('Error guardando la plantilla: ' + err.message);
+    }
+  };
+
+  // Cargar una plantilla seleccionada del dropdown al textarea
+  const loadTemplate = (tipo, plantillaId) => {
+    if (!plantillaId) return;
+    const p = plantillas.find(x => x.id === plantillaId);
+    if (!p) return;
+    if (tipo === 'inicial') set('plantilla_mensaje', p.texto);
+    else set('plantilla_followup', p.texto);
+  };
+
+  const plantillasIniciales = plantillas.filter(p => p.tipo === 'inicial');
+  const plantillasFollowup = plantillas.filter(p => p.tipo === 'followup');
 
   const handleSave = async (andScrape = false) => {
     if (!form.nombre.trim()) return;
@@ -655,12 +919,36 @@ function CampanaModal({ open, onClose, editing, onSaved, onSaveAndScrape }) {
 
         {/* Plantilla mensaje inicial */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Plantilla mensaje inicial
-            <span className="ml-2 text-xs text-gray-400 font-normal">
-              Variables: {'{{nombre}}'} {'{{precio}}'} {'{{poblacion}}'} {'{{tipo}}'}
-            </span>
-          </label>
+          <div className="flex items-center justify-between mb-1 gap-2 flex-wrap">
+            <label className="block text-sm font-medium text-gray-700">
+              Plantilla mensaje inicial
+              <span className="ml-2 text-xs text-gray-400 font-normal">
+                Variables: {'{{nombre}}'} {'{{precio}}'} {'{{poblacion}}'} {'{{tipo}}'}
+              </span>
+            </label>
+            <div className="flex items-center gap-1">
+              {plantillasIniciales.length > 0 && (
+                <select
+                  value=""
+                  onChange={e => loadTemplate('inicial', e.target.value)}
+                  className="text-xs border border-gray-300 rounded px-2 py-1 bg-white focus:ring-1 focus:ring-blue-500 outline-none"
+                >
+                  <option value="">Cargar plantilla...</option>
+                  {plantillasIniciales.map(p => (
+                    <option key={p.id} value={p.id}>{p.nombre}</option>
+                  ))}
+                </select>
+              )}
+              <button
+                type="button"
+                onClick={() => saveAsTemplate('inicial')}
+                className="text-xs text-blue-600 hover:text-blue-800 font-medium px-2 py-1"
+                title="Guardar este texto como plantilla reutilizable"
+              >
+                💾 Guardar como plantilla
+              </button>
+            </div>
+          </div>
           <textarea
             rows={3}
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none"
@@ -671,7 +959,31 @@ function CampanaModal({ open, onClose, editing, onSaved, onSaveAndScrape }) {
 
         {/* Plantilla follow-up */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Plantilla follow-up</label>
+          <div className="flex items-center justify-between mb-1 gap-2 flex-wrap">
+            <label className="block text-sm font-medium text-gray-700">Plantilla follow-up</label>
+            <div className="flex items-center gap-1">
+              {plantillasFollowup.length > 0 && (
+                <select
+                  value=""
+                  onChange={e => loadTemplate('followup', e.target.value)}
+                  className="text-xs border border-gray-300 rounded px-2 py-1 bg-white focus:ring-1 focus:ring-blue-500 outline-none"
+                >
+                  <option value="">Cargar plantilla...</option>
+                  {plantillasFollowup.map(p => (
+                    <option key={p.id} value={p.id}>{p.nombre}</option>
+                  ))}
+                </select>
+              )}
+              <button
+                type="button"
+                onClick={() => saveAsTemplate('followup')}
+                className="text-xs text-blue-600 hover:text-blue-800 font-medium px-2 py-1"
+                title="Guardar este texto como plantilla reutilizable"
+              >
+                💾 Guardar como plantilla
+              </button>
+            </div>
+          </div>
           <textarea
             rows={2}
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none resize-none"
@@ -1476,6 +1788,7 @@ export default function Captacion() {
   const [editingLead, setEditingLead] = useState(null);
   const [editLeadCallback, setEditLeadCallback] = useState(null);
   const [agentSetupOpen, setAgentSetupOpen] = useState(false);
+  const [plantillasOpen, setPlantillasOpen] = useState(false);
 
   const loadCampanas = useCallback(() => {
     setLoading(true);
@@ -1608,6 +1921,13 @@ export default function Captacion() {
         </div>
         <div className="flex items-center justify-between sm:justify-end gap-3 flex-wrap">
           <AgentStatusBar status={agentStatus} onRefresh={loadAgentStatus} onOpenSetup={() => setAgentSetupOpen(true)} />
+          <button
+            onClick={() => setPlantillasOpen(true)}
+            className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-white hover:bg-gray-50 text-gray-700 border border-gray-300 rounded-lg text-sm font-medium whitespace-nowrap"
+            title="Gestionar plantillas de mensajes"
+          >
+            📝 Plantillas
+          </button>
           <button
             onClick={openCreate}
             className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium whitespace-nowrap"
@@ -1780,6 +2100,12 @@ export default function Captacion() {
       <AgentSetupModal
         open={agentSetupOpen}
         onClose={() => setAgentSetupOpen(false)}
+      />
+
+      {/* Modal de plantillas */}
+      <PlantillasModal
+        open={plantillasOpen}
+        onClose={() => setPlantillasOpen(false)}
       />
     </div>
   );

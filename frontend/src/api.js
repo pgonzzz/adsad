@@ -98,4 +98,9 @@ export const captacionApi = {
   createTarea: (tarea) => post('/captacion/tareas', tarea),
   cancelTarea: (id) => post(`/captacion/tareas/${id}/cancel`, {}),
   getCampanaActiveTask: (campanaId) => get(`/captacion/campanas/${campanaId}/active-task`),
+  // Plantillas de mensajes
+  getPlantillas: (tipo) => get('/captacion/plantillas', tipo ? { tipo } : undefined),
+  createPlantilla: (data) => post('/captacion/plantillas', data),
+  updatePlantilla: (id, data) => put(`/captacion/plantillas/${id}`, data),
+  deletePlantilla: (id) => del(`/captacion/plantillas/${id}`),
 };

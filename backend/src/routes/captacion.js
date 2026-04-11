@@ -253,6 +253,71 @@ router.delete('/leads/:id', authMiddleware, async (req, res) => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// PLANTILLAS DE MENSAJES
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// GET /captacion/plantillas — listar plantillas del usuario
+// Filtro opcional: ?tipo=inicial|followup
+router.get('/plantillas', authMiddleware, async (req, res) => {
+  let query = supabase
+    .from('captacion_plantillas')
+    .select('*')
+    .eq('user_id', req.user.id)
+    .order('updated_at', { ascending: false });
+
+  if (req.query.tipo) query = query.eq('tipo', req.query.tipo);
+
+  const { data, error } = await query;
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data || []);
+});
+
+// POST /captacion/plantillas — crear plantilla
+router.post('/plantillas', authMiddleware, async (req, res) => {
+  const { nombre, texto, tipo } = req.body;
+  if (!nombre || !texto || !tipo) {
+    return res.status(400).json({ error: 'Faltan campos: nombre, texto y tipo son obligatorios' });
+  }
+  if (!['inicial', 'followup'].includes(tipo)) {
+    return res.status(400).json({ error: 'tipo debe ser "inicial" o "followup"' });
+  }
+  const { data, error } = await supabase
+    .from('captacion_plantillas')
+    .insert([{ user_id: req.user.id, nombre, texto, tipo }])
+    .select()
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.status(201).json(data);
+});
+
+// PUT /captacion/plantillas/:id — actualizar (solo si es del usuario)
+router.put('/plantillas/:id', authMiddleware, async (req, res) => {
+  // Nunca permitir cambiar user_id
+  const { user_id, id, created_at, updated_at, ...safeBody } = req.body;
+  const { data, error } = await supabase
+    .from('captacion_plantillas')
+    .update(safeBody)
+    .eq('id', req.params.id)
+    .eq('user_id', req.user.id)
+    .select()
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  if (!data) return res.status(404).json({ error: 'Plantilla no encontrada' });
+  res.json(data);
+});
+
+// DELETE /captacion/plantillas/:id — eliminar
+router.delete('/plantillas/:id', authMiddleware, async (req, res) => {
+  const { error } = await supabase
+    .from('captacion_plantillas')
+    .delete()
+    .eq('id', req.params.id)
+    .eq('user_id', req.user.id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.status(204).send();
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // TAREAS
 // ═══════════════════════════════════════════════════════════════════════════════
 
