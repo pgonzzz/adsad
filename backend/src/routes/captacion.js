@@ -21,15 +21,23 @@ async function getUserIdFromAgentKey(req) {
   const key = req.headers['x-agent-key'] || req.query.agent_key;
   if (!key) return null;
 
-  // Clave legacy → primer usuario del sistema (backward compat)
+  // Clave legacy → usuario más antiguo del sistema (backward compat).
+  // Usamos auth.admin.listUsers porque captacion_agent_keys.created_at
+  // puede ser idéntico para todos los usuarios si se creó la tabla
+  // en la misma migración. En cambio auth.users.created_at es el
+  // timestamp real de registro de cada usuario y es determinista.
   if (key === LEGACY_AGENT_KEY || key === process.env.AGENT_KEY) {
-    const { data } = await supabase
-      .from('captacion_agent_keys')
-      .select('user_id')
-      .order('created_at', { ascending: true })
-      .limit(1)
-      .maybeSingle();
-    return data?.user_id || null;
+    try {
+      const { data, error } = await supabase.auth.admin.listUsers({ perPage: 1000 });
+      if (error || !data?.users || data.users.length === 0) return null;
+      const sorted = [...data.users].sort((a, b) =>
+        new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      );
+      return sorted[0]?.id || null;
+    } catch (err) {
+      console.warn('[auth] Error listando usuarios:', err.message);
+      return null;
+    }
   }
 
   // Clave normal → lookup directo

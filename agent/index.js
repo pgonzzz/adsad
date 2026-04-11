@@ -13,6 +13,37 @@ const fs = require('fs');
 const path = require('path');
 const net = require('net');
 const { spawn } = require('child_process');
+
+// ─── Cargar .env manualmente (sin dependencias) ─────────────────────────────
+// Parser minimal de variables KEY=VALUE tipo dotenv. Evita añadir dotenv
+// como dependencia para que el agente funcione sin npm install extra.
+try {
+  const envPath = path.join(__dirname, '.env');
+  if (fs.existsSync(envPath)) {
+    const envContent = fs.readFileSync(envPath, 'utf8');
+    for (const rawLine of envContent.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith('#')) continue;
+      const eq = line.indexOf('=');
+      if (eq < 0) continue;
+      const key = line.slice(0, eq).trim();
+      let value = line.slice(eq + 1).trim();
+      // Quitar comillas opcionales
+      if ((value.startsWith('"') && value.endsWith('"')) ||
+          (value.startsWith("'") && value.endsWith("'"))) {
+        value = value.slice(1, -1);
+      }
+      // No sobrescribir si ya está en el entorno
+      if (key && !(key in process.env)) {
+        process.env[key] = value;
+      }
+    }
+    console.log('[Agent] .env cargado desde', envPath);
+  }
+} catch (err) {
+  console.warn('[Agent] No se pudo leer .env:', err.message);
+}
+
 const { BACKEND_URL, AGENT_KEY, POLL_INTERVAL, HEARTBEAT_INTERVAL } = require('./config');
 const { scrapeIdealista } = require('./scraper/idealista');
 const { initWhatsApp, sendMessage, isConnected, getCurrentQR } = require('./whatsapp/client');
