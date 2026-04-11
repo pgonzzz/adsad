@@ -1211,6 +1211,7 @@ function CampanaDetail({ campana, onBack, onRefresh, onEditLead, onDeleteLead, a
   const [leads, setLeads] = useState([]);
   const [loadingLeads, setLoadingLeads] = useState(true);
   const [actionLoading, setActionLoading] = useState('');
+  const [activeTask, setActiveTask] = useState(null); // tarea de scrape activa si la hay
 
   const loadLeads = useCallback(() => {
     setLoadingLeads(true);
@@ -1221,17 +1222,35 @@ function CampanaDetail({ campana, onBack, onRefresh, onEditLead, onDeleteLead, a
 
   useEffect(loadLeads, [loadLeads]);
 
-  // Auto-refresh de leads cada 5 segundos mientras la vista está abierta.
-  // Esto hace que los leads aparezcan en tiempo real a medida que el
-  // agente los va scrapeando y enviándolos via partial result.
+  // Auto-refresh de leads Y de la tarea activa cada 5 segundos. Esto hace
+  // que los leads aparezcan en tiempo real y que el botón "Pausar" aparezca
+  // cuando hay un scraping en curso.
   useEffect(() => {
-    const interval = setInterval(() => {
+    const refresh = () => {
       captacionApi.getLeads({ campana_id: campana.id })
         .then(setLeads)
-        .catch(() => { /* silenciar errores del polling */ });
-    }, 5000);
+        .catch(() => {});
+      captacionApi.getCampanaActiveTask(campana.id)
+        .then(r => setActiveTask(r.task || null))
+        .catch(() => {});
+    };
+    refresh(); // inmediato al montar
+    const interval = setInterval(refresh, 5000);
     return () => clearInterval(interval);
   }, [campana.id]);
+
+  const handlePauseScrape = async () => {
+    if (!activeTask) return;
+    if (!confirm('¿Pausar el scraping en curso? Los leads ya extraídos se mantendrán. Podrás volver a lanzarlo cuando quieras.')) return;
+    setActionLoading('pause');
+    try {
+      await captacionApi.cancelTarea(activeTask.id);
+      setActiveTask(null);
+    } catch (err) {
+      alert('Error pausando: ' + err.message);
+    }
+    setActionLoading('');
+  };
 
   const stats = {
     total: leads.length,
@@ -1376,14 +1395,30 @@ function CampanaDetail({ campana, onBack, onRefresh, onEditLead, onDeleteLead, a
 
       {/* Acciones */}
       <div className="flex gap-2 mb-4 flex-wrap">
-        <button
-          onClick={handleScrape}
-          disabled={actionLoading === 'scrape'}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium disabled:opacity-50"
-        >
-          <Search size={14} />
-          {actionLoading === 'scrape' ? 'Creando tarea...' : 'Iniciar scraping'}
-        </button>
+        {activeTask ? (
+          <button
+            onClick={handlePauseScrape}
+            disabled={actionLoading === 'pause'}
+            className="flex items-center gap-2 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm font-medium disabled:opacity-50"
+            title="Parar el scraping en curso"
+          >
+            <Pause size={14} />
+            {actionLoading === 'pause'
+              ? 'Pausando...'
+              : activeTask.estado === 'en_proceso'
+                ? 'Pausar scraping en curso'
+                : 'Cancelar tarea pendiente'}
+          </button>
+        ) : (
+          <button
+            onClick={handleScrape}
+            disabled={actionLoading === 'scrape'}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium disabled:opacity-50"
+          >
+            <Search size={14} />
+            {actionLoading === 'scrape' ? 'Creando tarea...' : 'Iniciar scraping'}
+          </button>
+        )}
         <button
           onClick={handleSendWA}
           disabled={actionLoading === 'wa_send'}

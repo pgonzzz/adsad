@@ -219,20 +219,34 @@ async function handleScrapeTask(tarea) {
   let leads = [];
   let error = null;
 
+  // Flag compartida que indica si el usuario ha pausado la tarea desde el CRM.
+  // El backend lo señala en la respuesta de cada partial result. Lo checkea
+  // el scraper entre anuncios para abortar el bucle.
+  let cancelledByUser = false;
+
   try {
-    // Callback de streaming: enviar cada lead al CRM en cuanto se scrapea
+    // Callback de streaming: enviar cada lead al CRM en cuanto se scrapea.
+    // Si el backend responde con {cancelled: true} (porque el usuario pulsó
+    // el botón de pausar), activamos la flag y el scraper saldrá del bucle.
     const onLead = async (lead) => {
       try {
-        await api.post('/api/captacion/agent/result', {
+        const resp = await api.post('/api/captacion/agent/result', {
           tarea_id: tarea.id,
           tipo: 'scrape',
           partial: true,
           leads: [lead],
         });
+        if (resp.data?.cancelled) {
+          cancelledByUser = true;
+          console.log('[Task] Usuario pulsó pausa — abortando scraping en el próximo checkpoint.');
+        }
       } catch (err) {
         console.warn('[Task] Error enviando lead parcial:', err.message);
       }
     };
+
+    // Callback que el scraper llama en checkpoints para saber si debe parar
+    const shouldAbort = () => cancelledByUser;
 
     leads = await scrapeIdealista({
       url_inicial: payload.url_inicial,
@@ -242,10 +256,17 @@ async function handleScrapeTask(tarea) {
       precio_min: payload.precio_min,
       precio_max: payload.precio_max,
       maxPages: payload.max_paginas || 3,
-    }, onLead);
+    }, onLead, shouldAbort);
   } catch (err) {
     error = err.message;
     console.error('[Task] Error en scraping:', err.message);
+  }
+
+  // Si el usuario canceló, la tarea ya está en estado 'cancelada'. No
+  // marcamos como completada — solo enviamos un resultado informativo.
+  if (cancelledByUser) {
+    console.log(`[Task] Scraping pausado por el usuario. ${leads.length} leads enviados antes de la pausa.`);
+    return;
   }
 
   // Reportar resultado final (marca la tarea como completada).

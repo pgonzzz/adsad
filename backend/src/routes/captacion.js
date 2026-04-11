@@ -281,6 +281,72 @@ router.post('/tareas', authMiddleware, async (req, res) => {
   res.status(201).json(data);
 });
 
+// POST /captacion/tareas/:id/cancel — pausar/cancelar una tarea en curso
+// Marca la tarea como 'cancelada' en la BD. El agente, en el siguiente
+// partial result que envía, recibirá {cancelled:true} y abortará el bucle.
+router.post('/tareas/:id/cancel', authMiddleware, async (req, res) => {
+  // Verificar que la tarea pertenece al usuario
+  const { data: tarea, error: selErr } = await supabase
+    .from('captacion_tareas')
+    .select('id, user_id, estado')
+    .eq('id', req.params.id)
+    .single();
+
+  if (selErr || !tarea) {
+    return res.status(404).json({ error: 'Tarea no encontrada' });
+  }
+  if (tarea.user_id !== req.user.id) {
+    return res.status(403).json({ error: 'No tienes acceso a esta tarea' });
+  }
+  if (tarea.estado !== 'pendiente' && tarea.estado !== 'en_proceso') {
+    return res.status(400).json({ error: `La tarea está en estado "${tarea.estado}" y no se puede cancelar` });
+  }
+
+  const { error: updErr } = await supabase
+    .from('captacion_tareas')
+    .update({ estado: 'cancelada', completed_at: new Date().toISOString() })
+    .eq('id', req.params.id);
+
+  if (updErr) return res.status(500).json({ error: updErr.message });
+  res.json({ ok: true, tarea_id: req.params.id });
+});
+
+// GET /captacion/campanas/:id/active-task — devuelve la tarea de scraping
+// activa (pendiente o en_proceso) de una campaña, si la hay. El frontend
+// lo usa para decidir si muestra el botón "Pausar scraping".
+router.get('/campanas/:id/active-task', authMiddleware, async (req, res) => {
+  // Verificar que la campaña es del usuario
+  const { data: campana } = await supabase
+    .from('captacion_campanas')
+    .select('user_id')
+    .eq('id', req.params.id)
+    .single();
+  if (!campana || campana.user_id !== req.user.id) {
+    return res.status(403).json({ error: 'No tienes acceso a esta campaña' });
+  }
+
+  // Buscar tarea scrape activa para esta campaña
+  const { data, error } = await supabase
+    .from('captacion_tareas')
+    .select('id, tipo, estado, created_at')
+    .eq('user_id', req.user.id)
+    .eq('tipo', 'scrape')
+    .in('estado', ['pendiente', 'en_proceso'])
+    .order('created_at', { ascending: false })
+    .limit(20);
+
+  if (error) return res.status(500).json({ error: error.message });
+
+  // Filtrar client-side por campana_id (está en el payload JSONB)
+  const { data: tareasConPayload } = await supabase
+    .from('captacion_tareas')
+    .select('id, tipo, estado, created_at, payload')
+    .in('id', (data || []).map(t => t.id));
+
+  const activa = (tareasConPayload || []).find(t => t.payload?.campana_id === req.params.id);
+  res.json({ task: activa || null });
+});
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // AGENT ROUTES
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -590,7 +656,17 @@ router.post('/agent/result', agentAuthMiddleware, async (req, res) => {
     }
   }
 
-  res.json({ ok: true });
+  // Comprobar si la tarea ha sido cancelada desde el frontend.
+  // Si lo está, devolvemos cancelled:true para que el agente aborte
+  // el bucle de scraping en el siguiente checkpoint.
+  const { data: currentTask } = await supabase
+    .from('captacion_tareas')
+    .select('estado')
+    .eq('id', tarea_id)
+    .maybeSingle();
+  const cancelled = currentTask?.estado === 'cancelada';
+
+  res.json({ ok: true, cancelled });
 });
 
 export default router;

@@ -96,4 +96,6 @@ export const captacionApi = {
     window.URL.revokeObjectURL(url);
   },
   createTarea: (tarea) => post('/captacion/tareas', tarea),
+  cancelTarea: (id) => post(`/captacion/tareas/${id}/cancel`, {}),
+  getCampanaActiveTask: (campanaId) => get(`/captacion/campanas/${campanaId}/active-task`),
 };

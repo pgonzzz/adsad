@@ -580,7 +580,7 @@ async function extractListingsFromPage(page, precioMin, precioMax) {
  *        llamado cada vez que se scrapea un nuevo lead (para streaming al CRM)
  * @returns {Promise<Array>}
  */
-async function scrapeIdealista(params, onLead) {
+async function scrapeIdealista(params, onLead, shouldAbort) {
   const maxPages = params.maxPages || 5;
   const leads = [];
 
@@ -656,6 +656,11 @@ async function scrapeIdealista(params, onLead) {
 
     // ── Scrapear páginas ──────────────────────────────────────────────────────
     for (let pageNum = 1; pageNum <= maxPages; pageNum++) {
+      // Checkpoint de cancelación entre páginas
+      if (shouldAbort && shouldAbort()) {
+        console.log('[Scraper] Abortando scraping (usuario pausó).');
+        break;
+      }
       if (pageNum > 1) {
         // Pausa más larga entre páginas para reducir probabilidad de ser
         // detectado como bot por Idealista tras muchas peticiones.
@@ -746,6 +751,15 @@ async function scrapeIdealista(params, onLead) {
       // ── Para cada artículo: extraer info del listado + clic "Ver teléfono" ─
       const listingData = [];
       for (let i = 0; i < uniqueArticles.length; i++) {
+        // Checkpoint de cancelación entre anuncios (fase 1)
+        if (shouldAbort && shouldAbort()) {
+          console.log('[Scraper] Abortando fase 1 (usuario pausó).');
+          // Liberar handles restantes
+          for (let j = i; j < uniqueArticles.length; j++) {
+            try { await uniqueArticles[j].handle.dispose(); } catch {}
+          }
+          break;
+        }
         const { handle: article, url } = uniqueArticles[i];
         try {
           // Datos básicos de la tarjeta
@@ -834,6 +848,11 @@ async function scrapeIdealista(params, onLead) {
 
       // ── Fase 2: abrir ficha para características + vendedor si falta ────────
       for (let i = 0; i < listingData.length; i++) {
+        // Checkpoint de cancelación entre fichas (fase 2)
+        if (shouldAbort && shouldAbort()) {
+          console.log('[Scraper] Abortando fase 2 (usuario pausó).');
+          break;
+        }
         const ld = listingData[i];
         let caracteristicas = null;
         let nombre_vendedor = ld.nombre_vendedor;
