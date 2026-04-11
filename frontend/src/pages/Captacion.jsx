@@ -235,15 +235,15 @@ function extractFromIdealistaUrl(url) {
 
 // ─── Componente AgentStatusBar ────────────────────────────────────────────────
 // ─── Modal de configuración del agente ───────────────────────────────────────
-// Muestra al usuario su clave única (agent_key) y las instrucciones para
-// conectar su propio agente en su Mac/Windows. Cada usuario del CRM tiene
-// su propia clave y puede tener su propio WhatsApp vinculado.
+// Muestra al usuario un botón de descarga de instalador automático para su
+// SO. El instalador ya lleva embebida la clave única del usuario, así que
+// no hace falta tocar Terminal ni pegar claves. Solo doble clic y listo.
 function AgentSetupModal({ open, onClose }) {
   const [keyData, setKeyData] = useState(null);
-  const [copied, setCopied] = useState(false);
+  const [downloading, setDownloading] = useState(null);
+  const [downloaded, setDownloaded] = useState(null);
 
-  // Auto-detectar el SO del navegador para mostrar las instrucciones
-  // correctas por defecto. El usuario puede cambiar a la otra pestaña.
+  // Auto-detectar el SO del navegador
   const detectedOS = (() => {
     const ua = (typeof navigator !== 'undefined' ? navigator.userAgent : '').toLowerCase();
     if (ua.includes('mac')) return 'mac';
@@ -259,12 +259,16 @@ function AgentSetupModal({ open, onClose }) {
     }
   }, [open, keyData]);
 
-  const copyToClipboard = async (text) => {
+  const handleDownload = async (os) => {
+    setDownloading(os);
     try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {}
+      await captacionApi.downloadInstaller(os);
+      setDownloaded(os);
+      setTimeout(() => setDownloaded(null), 4000);
+    } catch (err) {
+      alert('Error descargando el instalador: ' + (err.message || 'desconocido'));
+    }
+    setDownloading(null);
   };
 
   return (
@@ -273,40 +277,15 @@ function AgentSetupModal({ open, onClose }) {
         <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
           <p className="text-blue-900 font-semibold mb-1">¿Qué es esto?</p>
           <p className="text-blue-800 text-xs leading-relaxed">
-            Cada usuario del CRM tiene su propia clave única. El agente local (que se
-            instala en tu Mac o Windows) usa esta clave para conectarse al backend y
-            saber que eres <strong>tú</strong>. Así varios usuarios pueden tener su WhatsApp
-            corriendo a la vez sin interferencias.
-          </p>
-        </div>
-
-        {/* Clave del agente */}
-        <div>
-          <label className="block text-xs font-medium text-gray-700 mb-1">Tu clave única de agente</label>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              readOnly
-              value={keyData?.agent_key || 'Cargando...'}
-              className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-xs font-mono bg-gray-50"
-              onFocus={e => e.target.select()}
-            />
-            <button
-              onClick={() => keyData?.agent_key && copyToClipboard(keyData.agent_key)}
-              disabled={!keyData?.agent_key}
-              className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-medium flex items-center gap-1 disabled:opacity-50"
-            >
-              {copied ? <><Check size={14} /> Copiado</> : <><Copy size={14} /> Copiar</>}
-            </button>
-          </div>
-          <p className="text-xs text-gray-400 mt-1">
-            No compartas esta clave con nadie. Es privada para tu usuario.
+            Para que el CRM pueda enviar WhatsApp desde tu cuenta, necesitas instalar
+            un pequeño "agente" en tu PC. Es automático: descarga el instalador abajo,
+            dale <strong>doble clic</strong>, y listo. El instalador ya lleva tu clave
+            personal dentro, así que no tienes que copiar ni pegar nada.
           </p>
         </div>
 
         {/* Tabs de SO */}
         <div>
-          <p className="text-sm font-semibold text-gray-800 mb-2">Instalación (solo 1 vez)</p>
           <div className="flex gap-1 mb-3 bg-gray-100 rounded-lg p-1 w-fit">
             <button
               onClick={() => setOsTab('mac')}
@@ -326,50 +305,74 @@ function AgentSetupModal({ open, onClose }) {
             </button>
           </div>
 
-          {osTab === 'mac' && (
-            <div className="text-xs text-gray-600 space-y-2 bg-gray-50 rounded-lg border border-gray-200 p-3">
-              <p className="font-medium text-gray-800">Requisitos: tener Node.js y Git instalados.</p>
-              <p>1. Abre Terminal y ejecuta estos comandos:</p>
-              <pre className="bg-gray-900 text-gray-100 p-2 rounded text-[11px] overflow-x-auto">{`git clone https://github.com/pgonzzz/crm-pisalia.git ~/Desktop/crm-pisalia
-cd ~/Desktop/crm-pisalia/agent
-npm install
-./install-launchd.sh`}</pre>
-              <p>2. El script te pedirá tu clave de agente. Pégala (la has copiado arriba).</p>
-              <p className="text-green-700">
-                ✓ Listo. El agente arrancará solo cada vez que enciendas el Mac.
-                Chrome se abrirá automáticamente cuando el CRM pida scraping.
-              </p>
-              <p>3. En unos segundos, vuelve a esta página del CRM. Aparecerá un QR grande. Escanéalo con WhatsApp desde tu móvil (⋮ → Dispositivos vinculados → Vincular un dispositivo).</p>
-            </div>
-          )}
+          {/* Botón de descarga grande */}
+          <button
+            onClick={() => handleDownload(osTab)}
+            disabled={downloading !== null || !keyData}
+            className="w-full p-4 bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white rounded-xl shadow-md font-semibold flex items-center justify-center gap-3 transition-all disabled:opacity-60"
+          >
+            {downloading === osTab ? (
+              <>Preparando instalador...</>
+            ) : downloaded === osTab ? (
+              <><Check size={20} /> ¡Descargado! Revisa tu carpeta de Descargas</>
+            ) : (
+              <>
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                Descargar instalador para {osTab === 'mac' ? 'macOS' : 'Windows'}
+              </>
+            )}
+          </button>
 
-          {osTab === 'windows' && (
-            <div className="text-xs text-gray-600 space-y-2 bg-gray-50 rounded-lg border border-gray-200 p-3">
-              <p className="font-medium text-gray-800">Requisitos: Node.js LTS y Git for Windows instalados.</p>
-              <ul className="list-disc list-inside ml-1 space-y-0.5">
-                <li><a href="https://nodejs.org" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Descargar Node.js LTS</a></li>
-                <li><a href="https://git-scm.com/download/win" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Descargar Git for Windows</a></li>
-                <li><a href="https://www.google.com/chrome" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Descargar Google Chrome</a> (si no lo tienes)</li>
-              </ul>
-              <p className="mt-2">1. Abre <strong>PowerShell</strong> y ejecuta:</p>
-              <pre className="bg-gray-900 text-gray-100 p-2 rounded text-[11px] overflow-x-auto">{`git clone https://github.com/pgonzzz/crm-pisalia.git $env:USERPROFILE\\Desktop\\crm-pisalia
-cd $env:USERPROFILE\\Desktop\\crm-pisalia\\agent
-npm install`}</pre>
-              <p>2. Haz <strong>doble clic</strong> en <code className="bg-gray-200 px-1 rounded">install-windows.bat</code> (en la carpeta <code className="bg-gray-200 px-1 rounded">agent\\</code>).</p>
-              <p>3. El instalador te pedirá tu clave de agente. Pégala (la has copiado arriba) y pulsa Enter.</p>
-              <p className="text-green-700">
-                ✓ Listo. El agente arranca ahora mismo en segundo plano (sin ventana visible)
-                y se lanzará solo cada vez que inicies sesión en Windows. Chrome se abrirá
-                automáticamente cuando haya una tarea de scraping.
-              </p>
-              <p>4. En unos segundos, vuelve a esta página del CRM. Aparecerá un QR grande. Escanéalo con WhatsApp desde tu móvil (⋮ → Dispositivos vinculados → Vincular un dispositivo).</p>
-              <p className="text-amber-700 text-[11px] mt-2">
-                💡 Si el instalador se queja de que no puede crear la tarea programada,
-                haz clic derecho en <code className="bg-gray-200 px-1 rounded">install-windows.bat</code> → "Ejecutar como administrador".
-              </p>
-            </div>
-          )}
+          {/* Instrucciones tras descargar */}
+          <div className="mt-4 text-xs text-gray-700 space-y-2 bg-gray-50 rounded-lg border border-gray-200 p-3">
+            <p className="font-semibold text-gray-800">Qué hacer después de descargarlo:</p>
+
+            {osTab === 'mac' && (
+              <ol className="list-decimal list-inside space-y-1.5 text-gray-700">
+                <li>Abre la carpeta <strong>Descargas</strong> en el Finder.</li>
+                <li>Busca el fichero <code className="bg-gray-200 px-1 rounded">pisalia-agent-setup.command</code>.</li>
+                <li><strong>Doble clic</strong> sobre él.</li>
+                <li>Si macOS pregunta si quieres abrirlo porque es de un desarrollador no identificado, ve a <strong>Ajustes del Sistema → Privacidad y Seguridad</strong> y pulsa <strong>Abrir de todas formas</strong>.</li>
+                <li>Se abrirá una ventana de Terminal y hará todo solo (2-5 min).</li>
+                <li>Cuando acabe, vuelve a esta página. En 30s aparecerá un QR de WhatsApp.</li>
+                <li>Escanéalo con tu móvil (WhatsApp → ⋮ → Dispositivos vinculados).</li>
+              </ol>
+            )}
+
+            {osTab === 'windows' && (
+              <ol className="list-decimal list-inside space-y-1.5 text-gray-700">
+                <li>Abre la carpeta <strong>Descargas</strong> del Explorador de Windows.</li>
+                <li>Busca el fichero <code className="bg-gray-200 px-1 rounded">pisalia-agent-setup.bat</code>.</li>
+                <li><strong>Doble clic</strong> sobre él.</li>
+                <li>Si Windows Defender muestra "Se impidió el inicio de una aplicación no reconocida", pulsa <strong>Más información → Ejecutar de todas formas</strong>.</li>
+                <li>Si Windows pide permisos de administrador (UAC), pulsa <strong>Sí</strong>. Esto permite crear el auto-arranque.</li>
+                <li>Se abrirá una ventana negra y hará todo solo (2-5 min). No la cierres.</li>
+                <li>Cuando acabe, vuelve a esta página. En 30s aparecerá un QR de WhatsApp.</li>
+                <li>Escanéalo con tu móvil (WhatsApp → ⋮ → Dispositivos vinculados).</li>
+              </ol>
+            )}
+
+            <p className="text-amber-700 text-[11px] pt-2 border-t border-gray-200">
+              ⚠ El instalador contiene tu clave personal. No lo compartas con nadie.
+            </p>
+          </div>
         </div>
+
+        {/* Clave del agente — oculta por defecto, solo para debug */}
+        {keyData?.agent_key && (
+          <details className="text-xs text-gray-500">
+            <summary className="cursor-pointer hover:text-gray-700">
+              Ver mi clave de agente (avanzado)
+            </summary>
+            <div className="mt-2 p-2 bg-gray-50 rounded border border-gray-200 font-mono text-[11px] break-all">
+              {keyData.agent_key}
+            </div>
+            <p className="text-[10px] text-gray-400 mt-1">
+              El instalador ya lleva esta clave dentro. Solo te la enseñamos por si
+              la necesitas manualmente.
+            </p>
+          </details>
+        )}
 
         <div className="flex justify-end pt-2 border-t border-gray-100">
           <button

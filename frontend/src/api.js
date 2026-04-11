@@ -78,5 +78,22 @@ export const captacionApi = {
   deleteLead: (id) => del(`/captacion/leads/${id}`),
   getAgentStatus: () => get('/captacion/agent/status'),
   getMyAgentKey: () => get('/captacion/agent/my-key'),
+  // Descarga el instalador personalizado para el SO indicado ('windows'/'mac').
+  // Usa axios con auth para que el backend sepa qué clave embeder, recibe
+  // el fichero como blob y dispara la descarga en el navegador.
+  downloadInstaller: async (os) => {
+    const response = await api.get(`/captacion/agent/installer?os=${os}`, {
+      responseType: 'blob',
+    });
+    const blob = new Blob([response.data], { type: 'application/octet-stream' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = os === 'windows' ? 'pisalia-agent-setup.bat' : 'pisalia-agent-setup.command';
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  },
   createTarea: (tarea) => post('/captacion/tareas', tarea),
 };

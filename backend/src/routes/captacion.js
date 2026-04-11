@@ -343,6 +343,130 @@ router.get('/agent/my-key', authMiddleware, async (req, res) => {
   res.json({ agent_key: created.agent_key, nombre: created.nombre });
 });
 
+// GET /captacion/agent/installer?os=windows|mac — descarga un instalador
+// personalizado con la clave del usuario embebida. Basta con que el usuario
+// le dé doble clic al fichero descargado para instalar todo el agente.
+router.get('/agent/installer', authMiddleware, async (req, res) => {
+  const targetOs = (req.query.os || 'windows').toLowerCase();
+
+  // Obtener (o crear) la clave del usuario
+  let { data: keyData } = await supabase
+    .from('captacion_agent_keys')
+    .select('agent_key')
+    .eq('user_id', req.user.id)
+    .maybeSingle();
+
+  if (!keyData) {
+    const { data: created, error } = await supabase
+      .from('captacion_agent_keys')
+      .insert([{
+        user_id: req.user.id,
+        nombre: req.user.user_metadata?.full_name || req.user.email,
+      }])
+      .select()
+      .single();
+    if (error) return res.status(500).json({ error: error.message });
+    keyData = created;
+  }
+
+  const backendUrl = process.env.FRONTEND_URL
+    ? 'https://crm-pisalia-production.up.railway.app'
+    : 'https://crm-pisalia-production.up.railway.app';
+
+  if (targetOs === 'windows') {
+    // .bat con la clave embebida. Al doble clic lanza PowerShell que
+    // descarga el script grande setup-windows.ps1 desde GitHub y lo ejecuta
+    // pasándole la clave via variable de entorno.
+    const batContent =
+`@echo off
+REM ============================================================
+REM  Pisalia Agent - Instalador automatico para Windows
+REM
+REM  Este fichero contiene tu clave personal de usuario.
+REM  No lo compartas con nadie.
+REM
+REM  SOLO TIENES QUE HACER DOBLE CLIC EN ESTE FICHERO.
+REM  No necesitas saber nada de programacion.
+REM ============================================================
+
+set "PISALIA_AGENT_KEY=${keyData.agent_key}"
+set "PISALIA_BACKEND_URL=${backendUrl}"
+
+echo.
+echo ============================================================
+echo   Pisalia Agent - Instalacion automatica
+echo ============================================================
+echo.
+echo Se va a descargar y configurar todo automaticamente.
+echo Puede tardar 2-5 minutos segun tu conexion a internet.
+echo.
+echo Cuando acabe, vuelve al CRM en tu navegador y escanea el
+echo QR de WhatsApp que aparecera en la pagina de Captacion.
+echo.
+pause
+
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ProgressPreference='SilentlyContinue'; try { iwr 'https://raw.githubusercontent.com/pgonzzz/crm-pisalia/main/agent/setup-windows.ps1' -UseBasicParsing | iex } catch { Write-Host ''; Write-Host '[ERROR] No se pudo descargar el instalador desde GitHub. Revisa tu conexion a internet.' -ForegroundColor Red; Write-Host $_.Exception.Message -ForegroundColor Red; Read-Host 'Pulsa Enter para cerrar' }"
+
+if errorlevel 1 (
+  echo.
+  echo [ERROR] Hubo un problema. Revisa los mensajes de arriba.
+  pause
+  exit /b 1
+)
+
+exit /b 0
+`;
+
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', 'attachment; filename="pisalia-agent-setup.bat"');
+    return res.send(batContent);
+  }
+
+  if (targetOs === 'mac') {
+    // .command se abre directamente en Terminal al doble-clic en macOS.
+    const cmdContent =
+`#!/bin/bash
+# ============================================================
+#  Pisalia Agent - Instalador automatico para macOS
+#
+#  Este fichero contiene tu clave personal de usuario.
+#  No lo compartas con nadie.
+#
+#  SOLO TIENES QUE HACER DOBLE CLIC EN ESTE FICHERO.
+# ============================================================
+
+export PISALIA_AGENT_KEY="${keyData.agent_key}"
+export PISALIA_BACKEND_URL="${backendUrl}"
+
+echo ""
+echo "============================================================"
+echo "  Pisalia Agent - Instalación automática"
+echo "============================================================"
+echo ""
+echo "Se va a descargar y configurar todo automáticamente."
+echo "Puede tardar 2-5 minutos."
+echo ""
+
+curl -fsSL https://raw.githubusercontent.com/pgonzzz/crm-pisalia/main/agent/setup-mac.sh | bash
+
+if [ $? -ne 0 ]; then
+  echo ""
+  echo "[ERROR] Hubo un problema en la instalación."
+  read -p "Pulsa Enter para cerrar..."
+  exit 1
+fi
+
+read -p "Pulsa Enter para cerrar..."
+`;
+
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Disposition', 'attachment; filename="pisalia-agent-setup.command"');
+    return res.send(cmdContent);
+  }
+
+  return res.status(400).json({ error: 'OS no soportado. Usa os=windows o os=mac' });
+});
+
 // GET /captacion/agent/poll — el agente sondea si hay tareas pendientes
 router.get('/agent/poll', agentAuthMiddleware, async (req, res) => {
   const userId = req.agentUserId;
