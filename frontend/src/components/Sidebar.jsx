@@ -9,6 +9,7 @@ import {
   ClipboardList,
   LogOut,
   Search,
+  Calculator,
   X,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
@@ -22,6 +23,7 @@ const nav = [
   { to: '/proveedores', label: 'Proveedores', icon: Briefcase },
   { to: '/matches', label: 'Matches', icon: GitMerge },
   { to: '/operaciones', label: 'Operaciones', icon: TrendingUp },
+  { to: '/calculadora', label: 'Calculadora', icon: Calculator },
 ];
 
 export default function Sidebar({ open = false, onClose = () => {} }) {
