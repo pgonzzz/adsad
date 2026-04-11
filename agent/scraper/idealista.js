@@ -403,34 +403,120 @@ async function extractCaracteristicas(page) {
 // ─── Extracción de datos del vendedor ─────────────────────────────────────────
 
 async function extractSellerInfo(page) {
-  let nombre_vendedor = null;
-  let es_particular = true;
-
   try {
-    const sellerSelectors = [
-      '.professional-name',
-      '.advertiser-name',
-      '[class*="advertiser"]',
-      '.contact-info-agent',
-      '.user-info-name',
-    ];
+    return await page.evaluate(() => {
+      // ── Estrategia 1: buscar por selectores específicos conocidos ────────
+      const sellerSelectors = [
+        // Clases actuales de Idealista 2025-2026
+        '.about-advertiser-name',
+        '.professional-name',
+        '.advertiser-name',
+        '.name-container .name',
+        '.contact-info-container .name',
+        '[class*="about-advertiser"] [class*="name"]',
+        '[class*="advertiser"] [class*="name"]',
+        '[class*="professional"] [class*="name"]',
+        '[data-testid*="advertiser"]',
+        '[data-testid*="professional"]',
+        // Clases antiguas como fallback
+        '.contact-info-agent',
+        '.user-info-name',
+      ];
 
-    for (const sel of sellerSelectors) {
-      try {
-        const el = await page.$(sel);
+      let nombre_vendedor = null;
+      for (const sel of sellerSelectors) {
+        const el = document.querySelector(sel);
         if (el) {
-          nombre_vendedor = await el.evaluate(e => e.textContent.trim());
-          break;
+          const txt = (el.innerText || el.textContent || '').trim();
+          if (txt && txt.length > 1 && txt.length < 150) {
+            nombre_vendedor = txt;
+            break;
+          }
         }
-      } catch { /* ignorar */ }
-    }
+      }
 
-    const bodyText = await page.evaluate(() => document.body.innerText.toLowerCase());
-    es_particular = !bodyText.includes('agencia') && !bodyText.includes('inmobiliaria') && !bodyText.includes('promotor');
+      // ── Estrategia 2: alt del logo del anunciante ─────────────────────────
+      if (!nombre_vendedor) {
+        const logoSelectors = [
+          '.about-advertiser img',
+          '.professional-info img',
+          '[class*="advertiser"] img',
+          '[class*="professional"] img',
+          '.logo-advertiser img',
+          'picture[class*="logo"] img',
+        ];
+        for (const sel of logoSelectors) {
+          const img = document.querySelector(sel);
+          if (img && img.alt && img.alt.trim().length > 1) {
+            nombre_vendedor = img.alt.trim();
+            break;
+          }
+        }
+      }
 
-  } catch { /* ignorar */ }
+      // ── Estrategia 3: buscar por texto en la zona del anunciante ─────────
+      // Típicamente hay una sección <aside> o similar con el anunciante
+      if (!nombre_vendedor) {
+        const aside = document.querySelector('aside, [class*="about-advertiser"], [class*="contact-info"], [class*="side-info"]');
+        if (aside) {
+          // Buscar títulos/nombres dentro de ese aside
+          const heading = aside.querySelector('h1, h2, h3, h4, .name, [class*="name"]');
+          if (heading) {
+            const txt = (heading.innerText || heading.textContent || '').trim();
+            if (txt && txt.length > 1 && txt.length < 150) {
+              nombre_vendedor = txt;
+            }
+          }
+        }
+      }
 
-  return { nombre_vendedor, es_particular };
+      // ── Determinar si es particular o agencia ────────────────────────────
+      // Señales de particular:
+      //   - Texto explícito "Anunciante particular" / "Particular"
+      //   - No hay logo de agencia
+      // Señales de agencia:
+      //   - Texto "Profesional" / "Agencia" / "Inmobiliaria" en la zona del anunciante
+      //   - Logo con alt name
+      //   - Enlace "Ver más anuncios de <agencia>"
+      let es_particular = true;
+
+      // Buscar solo en la zona del anunciante, no en toda la página
+      const advertiserZone = document.querySelector(
+        'aside, [class*="about-advertiser"], [class*="advertiser-info"], [class*="professional-info"], [class*="contact-info"]'
+      );
+      const zoneText = advertiserZone
+        ? (advertiserZone.innerText || '').toLowerCase()
+        : '';
+
+      if (zoneText.includes('anunciante particular') || zoneText.includes('particular en')) {
+        es_particular = true;
+      } else if (
+        zoneText.includes('profesional') ||
+        zoneText.includes('agencia') ||
+        zoneText.includes('inmobiliaria') ||
+        zoneText.includes('promotor') ||
+        zoneText.includes('ver más anuncios de') ||
+        zoneText.includes('ver otros anuncios')
+      ) {
+        es_particular = false;
+      } else if (nombre_vendedor) {
+        // Si hay un nombre pero ninguna pista, asumir particular
+        // (las agencias suelen tener palabras clave claras)
+        es_particular = true;
+      }
+
+      // También: presencia de logo → casi seguro es agencia
+      const hasLogo = !!document.querySelector(
+        '.about-advertiser img[alt], [class*="logo-advertiser"] img[alt], [class*="professional"] img[alt]'
+      );
+      if (hasLogo) es_particular = false;
+
+      return { nombre_vendedor, es_particular };
+    });
+  } catch (err) {
+    console.warn('[Scraper] Error extrayendo vendedor:', err.message);
+    return { nombre_vendedor: null, es_particular: true };
+  }
 }
 
 // ─── Extrae listings de la página actual ─────────────────────────────────────
