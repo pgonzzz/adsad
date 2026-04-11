@@ -1,37 +1,67 @@
 import express from 'express';
 import supabase from '../db/supabase.js';
+import { authMiddleware } from '../middleware/auth.js';
 
 const router = express.Router();
 
-// ─── In-memory agent state ────────────────────────────────────────────────────
-let agentState = {
-  online: false,
-  whatsapp_connected: false,
-  qr_code: null,
-  last_seen: null,
-};
+// ─── Estado en memoria de agentes (por usuario) ──────────────────────────────
+// Mapa: user_id -> { online, whatsapp_connected, qr_code, last_seen }
+// Cada usuario tiene su propio agente corriendo en su Mac, con su propia
+// clave. El backend rutea las tareas al agente correcto por user_id.
+const agentStates = new Map();
 
-// ─── Helper: verify agent key ─────────────────────────────────────────────────
-const AGENT_KEY = process.env.AGENT_KEY || 'captacion-agent-2024';
+// ─── Helper: resolver user_id a partir de la agent_key ───────────────────────
+// Soporta:
+// - Claves UUID reales almacenadas en captacion_agent_keys (multi-usuario).
+// - Clave legacy 'captacion-agent-2024' → se mapea al primer usuario del
+//   sistema (el usuario original) para no romper el agente existente.
+const LEGACY_AGENT_KEY = 'captacion-agent-2024';
 
-function checkAgentKey(req, res) {
+async function getUserIdFromAgentKey(req) {
   const key = req.headers['x-agent-key'] || req.query.agent_key;
-  if (key !== AGENT_KEY) {
-    res.status(401).json({ error: 'Agent key inválida' });
-    return false;
+  if (!key) return null;
+
+  // Clave legacy → primer usuario del sistema (backward compat)
+  if (key === LEGACY_AGENT_KEY || key === process.env.AGENT_KEY) {
+    const { data } = await supabase
+      .from('captacion_agent_keys')
+      .select('user_id')
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    return data?.user_id || null;
   }
-  return true;
+
+  // Clave normal → lookup directo
+  const { data } = await supabase
+    .from('captacion_agent_keys')
+    .select('user_id')
+    .eq('agent_key', key)
+    .maybeSingle();
+  return data?.user_id || null;
+}
+
+// Middleware para rutas del agente que extrae el user_id de la agent_key.
+// Rechaza con 401 si la clave es inválida. Pone req.agentUserId.
+async function agentAuthMiddleware(req, res, next) {
+  const userId = await getUserIdFromAgentKey(req);
+  if (!userId) {
+    return res.status(401).json({ error: 'Agent key inválida' });
+  }
+  req.agentUserId = userId;
+  next();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // CAMPAÑAS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// GET /captacion/campanas — lista campañas con conteo de leads
-router.get('/campanas', async (req, res) => {
+// GET /captacion/campanas — lista campañas del usuario autenticado
+router.get('/campanas', authMiddleware, async (req, res) => {
   const { data, error } = await supabase
     .from('captacion_campanas')
     .select('*, captacion_leads(id, estado)')
+    .eq('user_id', req.user.id)
     .order('created_at', { ascending: false });
 
   if (error) return res.status(500).json({ error: error.message });
@@ -54,46 +84,51 @@ router.get('/campanas', async (req, res) => {
   res.json(campanas);
 });
 
-// POST /captacion/campanas — crear campaña
-router.post('/campanas', async (req, res) => {
+// POST /captacion/campanas — crear campaña (asociada al usuario actual)
+router.post('/campanas', authMiddleware, async (req, res) => {
   const { data, error } = await supabase
     .from('captacion_campanas')
-    .insert([req.body])
+    .insert([{ ...req.body, user_id: req.user.id }])
     .select()
     .single();
   if (error) return res.status(500).json({ error: error.message });
   res.status(201).json(data);
 });
 
-// GET /captacion/campanas/:id — campaña con leads
-router.get('/campanas/:id', async (req, res) => {
+// GET /captacion/campanas/:id — campaña con leads (solo si es del usuario)
+router.get('/campanas/:id', authMiddleware, async (req, res) => {
   const { data, error } = await supabase
     .from('captacion_campanas')
     .select('*, captacion_leads(*)')
     .eq('id', req.params.id)
+    .eq('user_id', req.user.id)
     .single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
 
-// PUT /captacion/campanas/:id — actualizar campaña
-router.put('/campanas/:id', async (req, res) => {
+// PUT /captacion/campanas/:id — actualizar (solo si es del usuario)
+router.put('/campanas/:id', authMiddleware, async (req, res) => {
+  // Nunca permitir cambiar user_id via update
+  const { user_id, ...safeBody } = req.body;
   const { data, error } = await supabase
     .from('captacion_campanas')
-    .update(req.body)
+    .update(safeBody)
     .eq('id', req.params.id)
+    .eq('user_id', req.user.id)
     .select()
     .single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
 
-// DELETE /captacion/campanas/:id — eliminar campaña
-router.delete('/campanas/:id', async (req, res) => {
+// DELETE /captacion/campanas/:id — eliminar (solo si es del usuario)
+router.delete('/campanas/:id', authMiddleware, async (req, res) => {
   const { error } = await supabase
     .from('captacion_campanas')
     .delete()
-    .eq('id', req.params.id);
+    .eq('id', req.params.id)
+    .eq('user_id', req.user.id);
   if (error) return res.status(500).json({ error: error.message });
   res.status(204).send();
 });
@@ -102,11 +137,13 @@ router.delete('/campanas/:id', async (req, res) => {
 // LEADS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// GET /captacion/leads — listar leads (filtros: campana_id, estado)
-router.get('/leads', async (req, res) => {
+// GET /captacion/leads — listar leads del usuario (filtros: campana_id, estado)
+router.get('/leads', authMiddleware, async (req, res) => {
+  // Solo leads cuyas campañas pertenecen al usuario
   let query = supabase
     .from('captacion_leads')
-    .select('*, captacion_campanas(nombre, portal)')
+    .select('*, captacion_campanas!inner(nombre, portal, user_id)')
+    .eq('captacion_campanas.user_id', req.user.id)
     .order('created_at', { ascending: false });
 
   if (req.query.campana_id) query = query.eq('campana_id', req.query.campana_id);
@@ -117,8 +154,19 @@ router.get('/leads', async (req, res) => {
   res.json(data);
 });
 
-// POST /captacion/leads — crear lead
-router.post('/leads', async (req, res) => {
+// POST /captacion/leads — crear lead (manual, desde el frontend)
+router.post('/leads', authMiddleware, async (req, res) => {
+  // Verificar que la campaña pertenece al usuario
+  if (req.body.campana_id) {
+    const { data: campana } = await supabase
+      .from('captacion_campanas')
+      .select('user_id')
+      .eq('id', req.body.campana_id)
+      .single();
+    if (!campana || campana.user_id !== req.user.id) {
+      return res.status(403).json({ error: 'No tienes acceso a esta campaña' });
+    }
+  }
   const { data, error } = await supabase
     .from('captacion_leads')
     .insert([req.body])
@@ -128,36 +176,17 @@ router.post('/leads', async (req, res) => {
   res.status(201).json(data);
 });
 
-// POST /captacion/leads/bulk — inserción masiva de leads
-router.post('/leads/bulk', async (req, res) => {
-  const leads = req.body; // array
-  if (!Array.isArray(leads) || leads.length === 0) {
-    return res.status(400).json({ error: 'Se esperaba un array de leads' });
-  }
-
-  // Deduplicar por url_anuncio dentro del mismo campana_id
-  const { data: existing } = await supabase
+// PUT /captacion/leads/:id — actualizar estado/notas (solo de sus campañas)
+router.put('/leads/:id', authMiddleware, async (req, res) => {
+  // Verificar que el lead pertenece a una campaña del usuario
+  const { data: lead } = await supabase
     .from('captacion_leads')
-    .select('url_anuncio')
-    .eq('campana_id', leads[0].campana_id);
-
-  const existingUrls = new Set((existing || []).map(l => l.url_anuncio).filter(Boolean));
-  const newLeads = leads.filter(l => !l.url_anuncio || !existingUrls.has(l.url_anuncio));
-
-  if (newLeads.length === 0) {
-    return res.json({ inserted: 0, duplicates: leads.length });
+    .select('campana_id, captacion_campanas(user_id)')
+    .eq('id', req.params.id)
+    .single();
+  if (!lead || lead.captacion_campanas?.user_id !== req.user.id) {
+    return res.status(403).json({ error: 'No tienes acceso a este lead' });
   }
-
-  const { data, error } = await supabase
-    .from('captacion_leads')
-    .insert(newLeads)
-    .select();
-  if (error) return res.status(500).json({ error: error.message });
-  res.status(201).json({ inserted: data.length, duplicates: leads.length - data.length, leads: data });
-});
-
-// PUT /captacion/leads/:id — actualizar estado/notas de un lead
-router.put('/leads/:id', async (req, res) => {
   const { data, error } = await supabase
     .from('captacion_leads')
     .update(req.body)
@@ -169,24 +198,25 @@ router.put('/leads/:id', async (req, res) => {
 });
 
 // POST /captacion/leads/respuesta — el agente notifica que un lead ha contestado por WhatsApp
-router.post('/leads/respuesta', async (req, res) => {
-  if (!checkAgentKey(req, res)) return;
+router.post('/leads/respuesta', agentAuthMiddleware, async (req, res) => {
   const { telefono, mensaje } = req.body;
   if (!telefono) return res.status(400).json({ error: 'telefono requerido' });
 
   // Buscar lead por teléfono (puede tener prefijo o no)
+  // Restringir a leads de campañas del usuario del agente (multi-usuario)
   const variants = [telefono, `34${telefono}`, `+34${telefono}`];
   let lead = null;
 
   for (const variant of variants) {
     const { data } = await supabase
       .from('captacion_leads')
-      .select('id, estado')
+      .select('id, estado, captacion_campanas!inner(user_id)')
       .eq('telefono', variant)
+      .eq('captacion_campanas.user_id', req.agentUserId)
       .in('estado', ['enviado', 'nuevo'])
       .order('created_at', { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle();
     if (data) { lead = data; break; }
   }
 
@@ -203,8 +233,17 @@ router.post('/leads/respuesta', async (req, res) => {
   res.json({ updated: true, lead_id: lead.id });
 });
 
-// DELETE /captacion/leads/:id — eliminar lead
-router.delete('/leads/:id', async (req, res) => {
+// DELETE /captacion/leads/:id — eliminar lead (solo si es del usuario)
+router.delete('/leads/:id', authMiddleware, async (req, res) => {
+  // Verificar propiedad
+  const { data: lead } = await supabase
+    .from('captacion_leads')
+    .select('captacion_campanas(user_id)')
+    .eq('id', req.params.id)
+    .single();
+  if (!lead || lead.captacion_campanas?.user_id !== req.user.id) {
+    return res.status(403).json({ error: 'No tienes acceso a este lead' });
+  }
   const { error } = await supabase
     .from('captacion_leads')
     .delete()
@@ -218,10 +257,24 @@ router.delete('/leads/:id', async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // POST /captacion/tareas — crear tarea (llamado desde el frontend)
-router.post('/tareas', async (req, res) => {
+// Hereda el user_id de la campaña para que solo la recoja el agente correcto
+router.post('/tareas', authMiddleware, async (req, res) => {
+  const campanaId = req.body.payload?.campana_id;
+  if (!campanaId) {
+    return res.status(400).json({ error: 'Falta campana_id en el payload' });
+  }
+  // Verificar que la campaña es del usuario
+  const { data: campana } = await supabase
+    .from('captacion_campanas')
+    .select('user_id')
+    .eq('id', campanaId)
+    .single();
+  if (!campana || campana.user_id !== req.user.id) {
+    return res.status(403).json({ error: 'No tienes acceso a esta campaña' });
+  }
   const { data, error } = await supabase
     .from('captacion_tareas')
-    .insert([{ ...req.body, estado: 'pendiente' }])
+    .insert([{ ...req.body, estado: 'pendiente', user_id: req.user.id }])
     .select()
     .single();
   if (error) return res.status(500).json({ error: error.message });
@@ -233,45 +286,82 @@ router.post('/tareas', async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════════
 
 // POST /captacion/agent/heartbeat — el agente envía su estado cada 10s
-router.post('/agent/heartbeat', async (req, res) => {
-  if (!checkAgentKey(req, res)) return;
-
+router.post('/agent/heartbeat', agentAuthMiddleware, async (req, res) => {
   const { whatsapp_connected, qr_code } = req.body;
-  agentState = {
+  agentStates.set(req.agentUserId, {
+    user_id: req.agentUserId,
     online: true,
     whatsapp_connected: !!whatsapp_connected,
     qr_code: qr_code || null,
     last_seen: new Date().toISOString(),
-  };
-
+  });
   res.json({ ok: true });
 });
 
-// GET /captacion/agent/status — estado actual del agente (para el frontend)
-router.get('/agent/status', async (req, res) => {
+// GET /captacion/agent/status — estado del agente del usuario autenticado
+router.get('/agent/status', authMiddleware, async (req, res) => {
+  const state = agentStates.get(req.user.id);
+  if (!state) {
+    return res.json({
+      online: false,
+      whatsapp_connected: false,
+      qr_code: null,
+      last_seen: null,
+    });
+  }
   // Si el último heartbeat fue hace más de 30s, marcar offline
-  const isOnline = agentState.last_seen
-    ? (Date.now() - new Date(agentState.last_seen).getTime()) < 30000
+  const isOnline = state.last_seen
+    ? (Date.now() - new Date(state.last_seen).getTime()) < 30000
     : false;
+  res.json({ ...state, online: isOnline });
+});
 
-  res.json({
-    ...agentState,
-    online: isOnline,
-  });
+// GET /captacion/agent/my-key — obtener (o crear) la agent_key del usuario
+router.get('/agent/my-key', authMiddleware, async (req, res) => {
+  // Intentar leer la clave existente
+  const { data: existing } = await supabase
+    .from('captacion_agent_keys')
+    .select('agent_key, nombre')
+    .eq('user_id', req.user.id)
+    .maybeSingle();
+
+  if (existing) {
+    return res.json({ agent_key: existing.agent_key, nombre: existing.nombre });
+  }
+
+  // Si no existe (usuario nuevo sin trigger), crearla
+  const { data: created, error } = await supabase
+    .from('captacion_agent_keys')
+    .insert([{
+      user_id: req.user.id,
+      nombre: req.user.user_metadata?.full_name || req.user.email,
+    }])
+    .select()
+    .single();
+
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ agent_key: created.agent_key, nombre: created.nombre });
 });
 
 // GET /captacion/agent/poll — el agente sondea si hay tareas pendientes
-router.get('/agent/poll', async (req, res) => {
-  if (!checkAgentKey(req, res)) return;
+router.get('/agent/poll', agentAuthMiddleware, async (req, res) => {
+  const userId = req.agentUserId;
 
   // Actualizar last_seen cuando el agente hace poll
-  agentState.last_seen = new Date().toISOString();
-  agentState.online = true;
+  const prev = agentStates.get(userId) || {};
+  agentStates.set(userId, {
+    ...prev,
+    user_id: userId,
+    online: true,
+    last_seen: new Date().toISOString(),
+  });
 
+  // Solo recoger tareas pendientes del usuario del agente
   const { data, error } = await supabase
     .from('captacion_tareas')
     .select('*')
     .eq('estado', 'pendiente')
+    .eq('user_id', userId)
     .order('created_at', { ascending: true })
     .limit(1)
     .maybeSingle();
@@ -294,9 +384,7 @@ router.get('/agent/poll', async (req, res) => {
 //     El agente lo usa durante el scraping para hacer streaming de leads al CRM.
 //   - partial=false (o ausente): marca la tarea como completada. Es el envío
 //     final que cierra la tarea.
-router.post('/agent/result', async (req, res) => {
-  if (!checkAgentKey(req, res)) return;
-
+router.post('/agent/result', agentAuthMiddleware, async (req, res) => {
   const { tarea_id, tipo, resultado, leads, partial } = req.body;
   const isPartial = !!partial;
 

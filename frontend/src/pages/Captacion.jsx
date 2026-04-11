@@ -8,7 +8,7 @@ import { PROVINCIAS } from '../data/municipios';
 import {
   Plus, Search, Wifi, WifiOff, RefreshCw, ChevronLeft,
   Play, Pause, Pencil, Trash2, MessageSquare, ExternalLink,
-  LayoutGrid, List, Smartphone, UserPlus,
+  LayoutGrid, List, Smartphone, UserPlus, Settings, Copy, Check,
 } from 'lucide-react';
 import { proveedoresApi } from '../api';
 
@@ -234,7 +234,125 @@ function extractFromIdealistaUrl(url) {
 }
 
 // ─── Componente AgentStatusBar ────────────────────────────────────────────────
-function AgentStatusBar({ status, onRefresh }) {
+// ─── Modal de configuración del agente ───────────────────────────────────────
+// Muestra al usuario su clave única (agent_key) y las instrucciones para
+// conectar su propio agente en su Mac/Windows. Cada usuario del CRM tiene
+// su propia clave y puede tener su propio WhatsApp vinculado.
+function AgentSetupModal({ open, onClose }) {
+  const [keyData, setKeyData] = useState(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (open && !keyData) {
+      captacionApi.getMyAgentKey().then(setKeyData).catch(() => {});
+    }
+  }, [open, keyData]);
+
+  const copyToClipboard = async (text) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {}
+  };
+
+  return (
+    <Modal isOpen={open} onClose={onClose} title="Conectar tu agente de WhatsApp" size="lg">
+      <div className="space-y-4 text-sm">
+        <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+          <p className="text-blue-900 font-semibold mb-1">¿Qué es esto?</p>
+          <p className="text-blue-800 text-xs leading-relaxed">
+            Cada usuario del CRM tiene su propia clave única. El agente local (que se
+            instala en tu Mac o Windows) usa esta clave para conectarse al backend y
+            saber que eres <strong>tú</strong>. Así varios usuarios pueden tener su WhatsApp
+            corriendo a la vez sin interferencias.
+          </p>
+        </div>
+
+        {/* Clave del agente */}
+        <div>
+          <label className="block text-xs font-medium text-gray-700 mb-1">Tu clave única de agente</label>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              readOnly
+              value={keyData?.agent_key || 'Cargando...'}
+              className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-xs font-mono bg-gray-50"
+              onFocus={e => e.target.select()}
+            />
+            <button
+              onClick={() => keyData?.agent_key && copyToClipboard(keyData.agent_key)}
+              disabled={!keyData?.agent_key}
+              className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-medium flex items-center gap-1 disabled:opacity-50"
+            >
+              {copied ? <><Check size={14} /> Copiado</> : <><Copy size={14} /> Copiar</>}
+            </button>
+          </div>
+          <p className="text-xs text-gray-400 mt-1">
+            No compartas esta clave con nadie. Es privada para tu usuario.
+          </p>
+        </div>
+
+        {/* Instrucciones de instalación */}
+        <div>
+          <p className="text-sm font-semibold text-gray-800 mb-2">Instrucciones de instalación</p>
+
+          <details className="mb-2 bg-gray-50 rounded-lg border border-gray-200">
+            <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-gray-700">
+              🍎 macOS
+            </summary>
+            <div className="px-3 pb-3 text-xs text-gray-600 space-y-2">
+              <p>1. Abre Terminal.</p>
+              <p>2. Clona el repo y entra en él:</p>
+              <pre className="bg-gray-900 text-gray-100 p-2 rounded text-[11px] overflow-x-auto">{`git clone https://github.com/pgonzzz/crm-pisalia.git ~/Desktop/crm-pisalia
+cd ~/Desktop/crm-pisalia/agent
+npm install`}</pre>
+              <p>3. Crea un fichero <code className="bg-gray-200 px-1 rounded">.env</code> en <code className="bg-gray-200 px-1 rounded">agent/</code> con tu clave:</p>
+              <pre className="bg-gray-900 text-gray-100 p-2 rounded text-[11px] overflow-x-auto">{`BACKEND_URL=https://crm-pisalia-production.up.railway.app
+AGENT_KEY=${keyData?.agent_key || 'TU_CLAVE_AQUI'}`}</pre>
+              <p>4. Instala el servicio para que arranque solo:</p>
+              <pre className="bg-gray-900 text-gray-100 p-2 rounded text-[11px] overflow-x-auto">{`./install-launchd.sh`}</pre>
+              <p>5. Al arrancar, aparecerá un QR de WhatsApp en esta misma página. Escanéalo con tu móvil (WhatsApp → Dispositivos vinculados).</p>
+            </div>
+          </details>
+
+          <details className="bg-gray-50 rounded-lg border border-gray-200">
+            <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-gray-700">
+              🪟 Windows
+            </summary>
+            <div className="px-3 pb-3 text-xs text-gray-600 space-y-2">
+              <p>1. Instala <a href="https://nodejs.org" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Node.js LTS</a> y <a href="https://git-scm.com/download/win" target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">Git for Windows</a>.</p>
+              <p>2. Abre <strong>PowerShell</strong> y ejecuta:</p>
+              <pre className="bg-gray-900 text-gray-100 p-2 rounded text-[11px] overflow-x-auto">{`git clone https://github.com/pgonzzz/crm-pisalia.git $env:USERPROFILE\\Desktop\\crm-pisalia
+cd $env:USERPROFILE\\Desktop\\crm-pisalia\\agent
+npm install`}</pre>
+              <p>3. Crea un fichero <code className="bg-gray-200 px-1 rounded">.env</code> en <code className="bg-gray-200 px-1 rounded">agent\\</code> con:</p>
+              <pre className="bg-gray-900 text-gray-100 p-2 rounded text-[11px] overflow-x-auto">{`BACKEND_URL=https://crm-pisalia-production.up.railway.app
+AGENT_KEY=${keyData?.agent_key || 'TU_CLAVE_AQUI'}`}</pre>
+              <p>4. Arranca el agente:</p>
+              <pre className="bg-gray-900 text-gray-100 p-2 rounded text-[11px] overflow-x-auto">{`npm start`}</pre>
+              <p className="text-amber-700">
+                ⚠ En Windows todavía no tenemos instalador auto-start. Para que corra en segundo plano al encender el PC, déjalo abierto en una ventana de PowerShell o usa el Task Scheduler. Puedo ayudarte con esto cuando quieras.
+              </p>
+              <p>5. Cuando el agente arranque, aparecerá un QR en el CRM. Escanéalo con tu WhatsApp.</p>
+            </div>
+          </details>
+        </div>
+
+        <div className="flex justify-end pt-2 border-t border-gray-100">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800"
+          >
+            Cerrar
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function AgentStatusBar({ status, onRefresh, onOpenSetup }) {
   const isOnline = status?.online;
   const waConnected = status?.whatsapp_connected;
 
@@ -244,15 +362,24 @@ function AgentStatusBar({ status, onRefresh }) {
   else if (isOnline && !waConnected) { dotClass = 'bg-orange-400'; label = 'Agente online · WhatsApp desconectado'; }
 
   return (
-    <div className="flex items-center gap-2 text-sm">
+    <div className="flex items-center gap-2 text-sm flex-wrap">
       <span className={`inline-block w-2 h-2 rounded-full ${dotClass} ${isOnline ? 'animate-pulse' : ''}`} />
       <span className="text-gray-600">{label}</span>
       {status?.last_seen && (
         <span className="text-gray-400 text-xs">· {timeAgo(status.last_seen)}</span>
       )}
-      <button onClick={onRefresh} className="text-gray-400 hover:text-gray-600 ml-1">
+      <button onClick={onRefresh} className="text-gray-400 hover:text-gray-600 ml-1" title="Refrescar">
         <RefreshCw size={13} />
       </button>
+      {onOpenSetup && (
+        <button
+          onClick={onOpenSetup}
+          className="flex items-center gap-1 px-2 py-1 text-xs text-gray-600 hover:text-gray-900 border border-gray-300 rounded-full hover:bg-gray-50 ml-1"
+          title="Configurar mi agente"
+        >
+          <Settings size={12} /> Configurar
+        </button>
+      )}
     </div>
   );
 }
@@ -1278,6 +1405,7 @@ export default function Captacion() {
   const [editLeadModal, setEditLeadModal] = useState(false);
   const [editingLead, setEditingLead] = useState(null);
   const [editLeadCallback, setEditLeadCallback] = useState(null);
+  const [agentSetupOpen, setAgentSetupOpen] = useState(false);
 
   const loadCampanas = useCallback(() => {
     setLoading(true);
@@ -1409,7 +1537,7 @@ export default function Captacion() {
           <p className="text-xs sm:text-sm text-gray-500 mt-0.5">Scraping automático y contacto por WhatsApp</p>
         </div>
         <div className="flex items-center justify-between sm:justify-end gap-3 flex-wrap">
-          <AgentStatusBar status={agentStatus} onRefresh={loadAgentStatus} />
+          <AgentStatusBar status={agentStatus} onRefresh={loadAgentStatus} onOpenSetup={() => setAgentSetupOpen(true)} />
           <button
             onClick={openCreate}
             className="flex items-center gap-2 px-3 sm:px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium whitespace-nowrap"
@@ -1576,6 +1704,12 @@ export default function Captacion() {
         onClose={() => setEditLeadModal(false)}
         lead={editingLead}
         onSaved={handleLeadSaved}
+      />
+
+      {/* Modal de configuración del agente */}
+      <AgentSetupModal
+        open={agentSetupOpen}
+        onClose={() => setAgentSetupOpen(false)}
       />
     </div>
   );

@@ -76,7 +76,7 @@ async function checkScrapeAuto(campana) {
 
   const { error } = await supabase
     .from('captacion_tareas')
-    .insert([{ tipo: 'scrape', payload, estado: 'pendiente' }]);
+    .insert([{ tipo: 'scrape', payload, estado: 'pendiente', user_id: campana.user_id }]);
 
   if (error) {
     console.warn('[Scheduler] Error creando scrape auto:', error.message);
@@ -126,7 +126,7 @@ async function checkWaAuto(campana) {
 
   const { error: insErr } = await supabase
     .from('captacion_tareas')
-    .insert([{ tipo: 'whatsapp_send', payload, estado: 'pendiente' }]);
+    .insert([{ tipo: 'whatsapp_send', payload, estado: 'pendiente', user_id: campana.user_id }]);
 
   if (insErr) {
     console.warn('[Scheduler] Error creando whatsapp_send auto:', insErr.message);
@@ -173,7 +173,7 @@ async function checkFollowupAuto(campana) {
 
   const { error: insErr } = await supabase
     .from('captacion_tareas')
-    .insert([{ tipo: 'whatsapp_followup', payload, estado: 'pendiente' }]);
+    .insert([{ tipo: 'whatsapp_followup', payload, estado: 'pendiente', user_id: campana.user_id }]);
 
   if (insErr) {
     console.warn('[Scheduler] Error creando whatsapp_followup auto:', insErr.message);

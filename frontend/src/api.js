@@ -77,5 +77,6 @@ export const captacionApi = {
   updateLead: (id, data) => put(`/captacion/leads/${id}`, data),
   deleteLead: (id) => del(`/captacion/leads/${id}`),
   getAgentStatus: () => get('/captacion/agent/status'),
+  getMyAgentKey: () => get('/captacion/agent/my-key'),
   createTarea: (tarea) => post('/captacion/tareas', tarea),
 };
