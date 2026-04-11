@@ -236,10 +236,14 @@ function extractFromIdealistaUrl(url) {
 // Muestra al usuario un botón de descarga de instalador automático para su
 // SO. El instalador ya lleva embebida la clave única del usuario, así que
 // no hace falta tocar Terminal ni pegar claves. Solo doble clic y listo.
-function AgentSetupModal({ open, onClose }) {
+function AgentSetupModal({ open, onClose, agentStatus }) {
   const [keyData, setKeyData] = useState(null);
   const [downloading, setDownloading] = useState(null);
   const [downloaded, setDownloaded] = useState(null);
+
+  // ¿El agente ya está conectado y listo?
+  const alreadyRunning = !!(agentStatus?.online && agentStatus?.whatsapp_connected);
+  const runningButNoWa = !!(agentStatus?.online && !agentStatus?.whatsapp_connected);
 
   // Auto-detectar el SO del navegador
   const detectedOS = (() => {
@@ -272,15 +276,51 @@ function AgentSetupModal({ open, onClose }) {
   return (
     <Modal isOpen={open} onClose={onClose} title="Conectar tu agente de WhatsApp" size="lg">
       <div className="space-y-4 text-sm">
-        <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
-          <p className="text-blue-900 font-semibold mb-1">¿Qué es esto?</p>
-          <p className="text-blue-800 text-xs leading-relaxed">
-            Para que el CRM pueda enviar WhatsApp desde tu cuenta, necesitas instalar
-            un pequeño "agente" en tu PC. Es automático: descarga el instalador abajo,
-            dale <strong>doble clic</strong>, y listo. El instalador ya lleva tu clave
-            personal dentro, así que no tienes que copiar ni pegar nada.
-          </p>
-        </div>
+        {/* Aviso: tu agente ya está funcionando */}
+        {alreadyRunning && (
+          <div className="p-3 bg-green-50 border-2 border-green-400 rounded-lg flex items-start gap-2">
+            <Check size={18} className="text-green-700 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-green-900 font-semibold mb-0.5">
+                Tu agente ya está conectado y funcionando ✓
+              </p>
+              <p className="text-green-800 text-xs leading-relaxed">
+                WhatsApp está vinculado y el agente está online. <strong>No necesitas
+                descargar nada</strong>. Puedes cerrar esta ventana — solo está pensada
+                para usuarios que van a conectar el agente por primera vez.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Aviso: agente online pero WhatsApp sin vincular */}
+        {runningButNoWa && (
+          <div className="p-3 bg-orange-50 border-2 border-orange-400 rounded-lg flex items-start gap-2">
+            <Smartphone size={18} className="text-orange-700 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-orange-900 font-semibold mb-0.5">
+                Tu agente está online pero WhatsApp no está vinculado
+              </p>
+              <p className="text-orange-800 text-xs leading-relaxed">
+                No hace falta que descargues nada. Vuelve a la página de Captación
+                y escanea el QR grande que debería estar apareciendo arriba.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Info para usuarios nuevos */}
+        {!alreadyRunning && !runningButNoWa && (
+          <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
+            <p className="text-blue-900 font-semibold mb-1">¿Qué es esto?</p>
+            <p className="text-blue-800 text-xs leading-relaxed">
+              Para que el CRM pueda enviar WhatsApp desde tu cuenta, necesitas instalar
+              un pequeño "agente" en tu PC. Es automático: descarga el instalador abajo,
+              dale <strong>doble clic</strong>, y listo. El instalador ya lleva tu clave
+              personal dentro, así que no tienes que copiar ni pegar nada.
+            </p>
+          </div>
+        )}
 
         {/* Tabs de SO */}
         <div>
@@ -2065,6 +2105,7 @@ export default function Captacion() {
       <AgentSetupModal
         open={agentSetupOpen}
         onClose={() => setAgentSetupOpen(false)}
+        agentStatus={agentStatus}
       />
 
       {/* Modal de plantillas */}
