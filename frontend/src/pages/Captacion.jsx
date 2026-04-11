@@ -46,8 +46,6 @@ const emptyCampana = {
   provincia: '',
   poblacion: '',
   tipo: 'piso',
-  precio_min: '',
-  precio_max: '',
   max_paginas: 3,
   plantilla_mensaje: 'Hola {{nombre}}, te contacto en relación a tu anuncio de {{tipo}} en {{poblacion}} por {{precio}}. ¿Sigues teniendo disponible el inmueble?',
   plantilla_followup: 'Hola {{nombre}}, hace unos días te escribí por tu anuncio de {{tipo}} en {{poblacion}}. ¿Pudiste verlo?',
@@ -700,8 +698,6 @@ function CampanaModal({ open, onClose, editing, onSaved, onSaveAndScrape }) {
         provincia: editing.provincia || '',
         poblacion: editing.poblacion || '',
         tipo: editing.tipo || 'piso',
-        precio_min: editing.precio_min || '',
-        precio_max: editing.precio_max || '',
         max_paginas: editing.max_paginas || 3,
         plantilla_mensaje: editing.plantilla_mensaje || emptyCampana.plantilla_mensaje,
         plantilla_followup: editing.plantilla_followup || emptyCampana.plantilla_followup,
@@ -766,8 +762,6 @@ function CampanaModal({ open, onClose, editing, onSaved, onSaveAndScrape }) {
     try {
       const payload = {
         ...form,
-        precio_min: form.precio_min ? parseInt(form.precio_min) : null,
-        precio_max: form.precio_max ? parseInt(form.precio_max) : null,
         max_paginas: parseInt(form.max_paginas) || 3,
         dias_followup: parseInt(form.dias_followup) || 3,
         scrape_intervalo_horas: parseInt(form.scrape_intervalo_horas) || 24,
@@ -882,39 +876,21 @@ function CampanaModal({ open, onClose, editing, onSaved, onSaveAndScrape }) {
           </select>
         </div>
 
-        {/* Precios */}
-        <div className="grid grid-cols-3 gap-3">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Precio mín. (€)</label>
-            <input
-              type="number"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-              value={form.precio_min}
-              onChange={e => set('precio_min', e.target.value)}
-              placeholder="0"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Precio máx. (€)</label>
-            <input
-              type="number"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-              value={form.precio_max}
-              onChange={e => set('precio_max', e.target.value)}
-              placeholder="Sin límite"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Máx. páginas</label>
-            <input
-              type="number"
-              min="1"
-              max="20"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
-              value={form.max_paginas}
-              onChange={e => set('max_paginas', e.target.value)}
-            />
-          </div>
+        {/* Máx. páginas */}
+        <div className="w-40">
+          <label className="block text-sm font-medium text-gray-700 mb-1">Máx. páginas</label>
+          <input
+            type="number"
+            min="1"
+            max="20"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+            value={form.max_paginas}
+            onChange={e => set('max_paginas', e.target.value)}
+          />
+          <p className="text-xs text-gray-400 mt-1">
+            Cuántas páginas de resultados scrapear. Los filtros de precio
+            y tipo los pones directamente en la URL de Idealista.
+          </p>
         </div>
 
         {/* Plantilla mensaje inicial */}
@@ -1585,8 +1561,6 @@ function CampanaDetail({ campana, onBack, onRefresh, onEditLead, onDeleteLead, a
           poblacion: campana.poblacion,
           provincia: campana.provincia,
           tipo: campana.tipo,
-          precio_min: campana.precio_min,
-          precio_max: campana.precio_max,
           max_paginas: campana.max_paginas || 3,
         },
       });
@@ -1680,8 +1654,7 @@ function CampanaDetail({ campana, onBack, onRefresh, onEditLead, onDeleteLead, a
         <div className="flex-1">
           <h2 className="text-lg font-bold text-gray-900">{campana.nombre}</h2>
           <p className="text-sm text-gray-500 capitalize">
-            {campana.portal} · {campana.tipo} · {campana.poblacion || campana.provincia || '—'} ·{' '}
-            {campana.precio_min ? fmt(campana.precio_min) : '0'} – {campana.precio_max ? fmt(campana.precio_max) : 'sin límite'}
+            {campana.portal} · {campana.tipo} · {campana.poblacion || campana.provincia || '—'}
           </p>
         </div>
         <Badge color={ESTADO_CAMPANA_COLORS[campana.estado] || 'gray'}>
@@ -1845,8 +1818,6 @@ export default function Captacion() {
           poblacion: campana.poblacion,
           provincia: campana.provincia,
           tipo: campana.tipo,
-          precio_min: campana.precio_min,
-          precio_max: campana.precio_max,
           max_paginas: campana.max_paginas || 3,
         },
       });
@@ -1988,7 +1959,6 @@ export default function Captacion() {
                   <th className="px-4 py-3 font-medium">Portal</th>
                   <th className="px-4 py-3 font-medium">Ubicación</th>
                   <th className="px-4 py-3 font-medium">Tipo</th>
-                  <th className="px-4 py-3 font-medium">Precio</th>
                   <th className="px-4 py-3 font-medium">Leads</th>
                   <th className="px-4 py-3 font-medium">Estado</th>
                   <th className="px-4 py-3 font-medium">Acciones</th>
@@ -2007,11 +1977,6 @@ export default function Captacion() {
                       {c.poblacion || c.provincia || '—'}
                     </td>
                     <td className="px-4 py-3 capitalize text-gray-600">{c.tipo}</td>
-                    <td className="px-4 py-3 text-gray-700 text-xs">
-                      {c.precio_min || c.precio_max
-                        ? `${fmt(c.precio_min)} – ${fmt(c.precio_max)}`
-                        : '—'}
-                    </td>
                     <td className="px-4 py-3">
                       <div className="flex gap-1 items-center">
                         <span className="font-semibold text-gray-800">{c.leads_total}</span>
