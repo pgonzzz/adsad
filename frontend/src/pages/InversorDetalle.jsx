@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Pencil, Check } from 'lucide-react';
 import { inversoresApi, peticionesApi, propiedadesApi } from '../api';
 import Modal from '../components/Modal';
 import Badge from '../components/Badge';
 import Combobox, { ComboboxMunicipios } from '../components/Combobox';
+import TagsInput, { TagsDisplay } from '../components/TagsInput';
+import NotesTimeline from '../components/NotesTimeline';
 import { PROVINCIAS } from '../data/municipios';
 
 const TIPOS = ['piso', 'local', 'nave', 'edificio', 'solar', 'otro'];
@@ -48,6 +50,10 @@ export default function InversorDetalle() {
   const [form, setForm] = useState(emptyPeticion);
   const [savingPropiedad, setSavingPropiedad] = useState(false);
   const [selectedPropiedad, setSelectedPropiedad] = useState('');
+
+  // Edición in-line de etiquetas
+  const [editingTags, setEditingTags] = useState(false);
+  const [draftTags, setDraftTags] = useState([]);
 
   const load = () => {
     setLoading(true);
@@ -117,6 +123,16 @@ export default function InversorDetalle() {
     setSavingPropiedad(false);
   };
 
+  const startEditTags = () => {
+    setDraftTags(inversor?.tags || []);
+    setEditingTags(true);
+  };
+  const saveTags = async () => {
+    await inversoresApi.update(id, { tags: draftTags });
+    setEditingTags(false);
+    load();
+  };
+
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
 
   if (loading) return <p className="text-gray-400">Cargando...</p>;
@@ -151,6 +167,47 @@ export default function InversorDetalle() {
               )}
             </div>
             {inversor.notas && <p className="mt-3 text-sm text-gray-500 max-w-xl">{inversor.notas}</p>}
+
+            {/* Etiquetas */}
+            <div className="mt-4 pt-4 border-t border-gray-100">
+              {editingTags ? (
+                <div className="space-y-2 max-w-lg">
+                  <TagsInput
+                    value={draftTags}
+                    onChange={setDraftTags}
+                    placeholder="Ej: vip, solo-efectivo, premium…"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={saveTags}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg"
+                    >
+                      <Check size={11} /> Guardar
+                    </button>
+                    <button
+                      onClick={() => setEditingTags(false)}
+                      className="px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700 border border-gray-300 rounded-lg"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 flex-wrap">
+                  {inversor.tags?.length > 0 ? (
+                    <TagsDisplay tags={inversor.tags} size="md" />
+                  ) : (
+                    <span className="text-xs text-gray-400">Sin etiquetas</span>
+                  )}
+                  <button
+                    onClick={startEditTags}
+                    className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700"
+                  >
+                    <Pencil size={10} /> {inversor.tags?.length > 0 ? 'Editar' : 'Añadir'}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -199,6 +256,18 @@ export default function InversorDetalle() {
             {savingPropiedad ? 'Guardando...' : 'Guardar'}
           </button>
         </div>
+      </div>
+
+      {/* Notas / Timeline */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6 mb-6">
+        <h2 className="font-semibold text-gray-900 mb-4">Notas</h2>
+        <NotesTimeline
+          comentarios={inversor.comentarios || []}
+          onSave={async (nueva) => {
+            await inversoresApi.update(id, { comentarios: nueva });
+            setInversor((inv) => ({ ...inv, comentarios: nueva }));
+          }}
+        />
       </div>
 
       {/* Peticiones */}

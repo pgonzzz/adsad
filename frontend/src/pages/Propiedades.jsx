@@ -7,13 +7,18 @@ import { supabase } from '../lib/supabase';
 import { ImagePlus, X, Loader2, SlidersHorizontal, ChevronDown, Paperclip, FileText } from 'lucide-react';
 import Combobox, { ComboboxMunicipios } from '../components/Combobox';
 import { PROVINCIAS } from '../data/municipios';
+import TagsInput, { TagsDisplay } from '../components/TagsInput';
 
 const TIPOS = ['piso', 'local', 'nave', 'edificio', 'solar', 'otro'];
 const ESTADOS = ['disponible', 'reservada', 'en_negociacion', 'vendida'];
 
 const empty = {
-  tipo: 'piso', provincia: '', poblacion: '', precio: '', rentabilidad_bruta: '', rentabilidad_neta: '',
-  acepta_financiacion: false, descripcion: '', estado: 'disponible', proveedor_id: '', notas: '',
+  tipo: 'piso', provincia: '', poblacion: '', direccion: '',
+  precio: '', rentabilidad_bruta: '', rentabilidad_neta: '',
+  m2: '', habitaciones: '', banos: '', planta: '',
+  anio_construccion: '', ref_catastral: '',
+  acepta_financiacion: false, descripcion: '', estado: 'disponible',
+  proveedor_id: '', notas: '', tags: [],
 };
 
 function fmt(n) {
@@ -96,10 +101,15 @@ export default function Propiedades() {
     setEditing(p);
     setForm({
       tipo: p.tipo, provincia: p.provincia || '', poblacion: p.poblacion || '',
+      direccion: p.direccion || '',
       precio: p.precio || '', rentabilidad_bruta: p.rentabilidad_bruta || '',
       rentabilidad_neta: p.rentabilidad_neta || '',
+      m2: p.m2 || '', habitaciones: p.habitaciones || '', banos: p.banos || '',
+      planta: p.planta || '', anio_construccion: p.anio_construccion || '',
+      ref_catastral: p.ref_catastral || '',
       acepta_financiacion: p.acepta_financiacion || false, descripcion: p.descripcion || '',
       estado: p.estado, proveedor_id: p.proveedor_id || '', notas: p.notas || '',
+      tags: p.tags || [],
     });
     setFotos(p.fotos || []);
     setAdjuntos(p.adjuntos || []);
@@ -163,7 +173,12 @@ export default function Propiedades() {
       precio: form.precio ? Number(form.precio) : null,
       rentabilidad_bruta: form.rentabilidad_bruta ? Number(form.rentabilidad_bruta) : null,
       rentabilidad_neta: form.rentabilidad_neta ? Number(form.rentabilidad_neta) : null,
+      m2: form.m2 ? Number(form.m2) : null,
+      habitaciones: form.habitaciones ? parseInt(form.habitaciones, 10) : null,
+      banos: form.banos ? parseInt(form.banos, 10) : null,
+      anio_construccion: form.anio_construccion ? parseInt(form.anio_construccion, 10) : null,
       proveedor_id: form.proveedor_id || null,
+      tags: form.tags || [],
       fotos,
       adjuntos,
     };
@@ -188,12 +203,19 @@ export default function Propiedades() {
     setFFinanciacion(''); setSearch('');
   };
 
+  // Todos los tags usados en alguna propiedad (para sugerencias)
+  const existingTags = Array.from(
+    new Set(propiedades.flatMap(p => p.tags || []))
+  ).sort();
+
   const filtered = propiedades.filter(p => {
     if (search && !(
       (p.provincia || '').toLowerCase().includes(search.toLowerCase()) ||
       (p.poblacion || '').toLowerCase().includes(search.toLowerCase()) ||
+      (p.direccion || '').toLowerCase().includes(search.toLowerCase()) ||
       (p.descripcion || '').toLowerCase().includes(search.toLowerCase()) ||
-      (p.proveedores?.nombre || '').toLowerCase().includes(search.toLowerCase())
+      (p.proveedores?.nombre || '').toLowerCase().includes(search.toLowerCase()) ||
+      (p.tags || []).some(t => t.includes(search.toLowerCase()))
     )) return false;
     if (fProvincia && p.provincia !== fProvincia) return false;
     if (fPoblacion && !(p.poblacion || '').toLowerCase().includes(fPoblacion.toLowerCase())) return false;
@@ -325,11 +347,31 @@ export default function Propiedades() {
                   <td className="px-4 py-3"><span className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-xs font-medium capitalize">{p.tipo}</span></td>
                   <td className="px-4 py-3"><Badge value={p.estado} /></td>
                   <td className="px-4 py-3 text-gray-900">
-                    {p.provincia || p.poblacion ? (
-                      <span>{p.provincia || ''}{p.provincia && p.poblacion ? ' / ' : ''}{p.poblacion || ''}</span>
-                    ) : '—'}
+                    <div>
+                      {p.provincia || p.poblacion ? (
+                        <span>{p.provincia || ''}{p.provincia && p.poblacion ? ' / ' : ''}{p.poblacion || ''}</span>
+                      ) : '—'}
+                      {(p.m2 || p.habitaciones) && (
+                        <div className="text-xs text-gray-400 mt-0.5">
+                          {p.m2 ? `${p.m2} m²` : ''}
+                          {p.m2 && p.habitaciones ? ' · ' : ''}
+                          {p.habitaciones ? `${p.habitaciones} hab` : ''}
+                          {p.banos ? ` · ${p.banos} bañ` : ''}
+                        </div>
+                      )}
+                      {p.tags?.length > 0 && (
+                        <div className="mt-1"><TagsDisplay tags={p.tags} size="sm" max={3} /></div>
+                      )}
+                    </div>
                   </td>
-                  <td className="px-4 py-3 font-medium text-gray-900">{fmt(p.precio)}</td>
+                  <td className="px-4 py-3 font-medium text-gray-900">
+                    {fmt(p.precio)}
+                    {p.precio && p.m2 && (
+                      <div className="text-xs text-gray-400 font-normal">
+                        {Math.round(p.precio / p.m2)} €/m²
+                      </div>
+                    )}
+                  </td>
                   <td className="px-4 py-3 text-gray-600">{p.rentabilidad_bruta ? `${p.rentabilidad_bruta}%` : '—'}</td>
                   <td className="px-4 py-3">{p.acepta_financiacion ? '✓' : '—'}</td>
                   <td className="px-4 py-3 text-gray-600">
@@ -390,6 +432,13 @@ export default function Propiedades() {
               <ComboboxMunicipios provincia={form.provincia} value={form.poblacion} onChange={v => setForm(f => ({ ...f, poblacion: v }))} />
             </div>
           </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Dirección (calle y número)</label>
+            <input type="text" value={form.direccion} onChange={set('direccion')}
+              placeholder="Ej: Calle Mayor 24"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            <p className="text-xs text-gray-400 mt-1">Si la rellenas, verás un mapa en la ficha de la propiedad.</p>
+          </div>
           <div className="grid grid-cols-3 gap-3">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Precio (€)</label>
@@ -406,6 +455,52 @@ export default function Propiedades() {
               <input type="number" step="0.1" value={form.rentabilidad_neta} onChange={set('rentabilidad_neta')}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
             </div>
+          </div>
+          <div className="grid grid-cols-4 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">m²</label>
+              <input type="number" value={form.m2} onChange={set('m2')}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Habs.</label>
+              <input type="number" value={form.habitaciones} onChange={set('habitaciones')}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Baños</label>
+              <input type="number" value={form.banos} onChange={set('banos')}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Planta</label>
+              <input type="text" value={form.planta} onChange={set('planta')}
+                placeholder="3ª ext."
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Año construcción</label>
+              <input type="number" value={form.anio_construccion} onChange={set('anio_construccion')}
+                placeholder="1975"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Referencia catastral</label>
+              <input type="text" value={form.ref_catastral} onChange={set('ref_catastral')}
+                placeholder="9872023VH5697S0001WX"
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Etiquetas</label>
+            <TagsInput
+              value={form.tags}
+              onChange={tags => setForm(f => ({ ...f, tags }))}
+              suggestions={existingTags}
+              placeholder="Ej: reformada, inversor, exterior… (enter)"
+            />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Proveedor</label>

@@ -2,10 +2,13 @@ import { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   ArrowLeft, ImagePlus, X, ExternalLink, Phone, Mail, Building2,
-  FileText, Paperclip, Loader2, Download, Pencil, Check, Send, User2, Trash2
+  FileText, Paperclip, Loader2, Download, Pencil, Check,
+  Ruler, BedDouble, Bath, MapPin
 } from 'lucide-react';
 import { propiedadesApi, proveedoresApi } from '../api';
 import Badge from '../components/Badge';
+import TagsInput, { TagsDisplay } from '../components/TagsInput';
+import NotesTimeline from '../components/NotesTimeline';
 import { supabase } from '../lib/supabase';
 
 const PIPELINE = [
@@ -32,18 +35,6 @@ function fmt(n) {
   return new Intl.NumberFormat('es-ES', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(n);
 }
 
-function fmtDate(iso) {
-  if (!iso) return '';
-  const d = new Date(iso);
-  return d.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' })
-    + ' · ' + d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
-}
-
-function avatarInitials(name) {
-  if (!name) return '?';
-  const parts = name.split(/[\s@]/);
-  return (parts[0]?.[0] || '').toUpperCase() + (parts[1]?.[0] || '').toUpperCase();
-}
 
 // ── Diálogo de confirmación in-app ────────────────────────────────────────────
 function ConfirmDialog({ open, title, message, onConfirm, onCancel, confirmLabel = 'Eliminar', danger = true }) {
@@ -86,15 +77,12 @@ export default function PropiedadDetalle() {
   const [selectedProveedor, setSelectedProveedor] = useState('');
   const [savingProveedor, setSavingProveedor] = useState(false);
 
-  // Comentarios
-  const [nuevoComentario, setNuevoComentario] = useState('');
-  const [savingComentario, setSavingComentario] = useState(false);
-  const [currentUser, setCurrentUser] = useState(null);
-  const [editingComentario, setEditingComentario] = useState(null); // { id, texto }
-  const [savingEdit, setSavingEdit] = useState(false);
-
   // Confirmación in-app
   const [confirm, setConfirm] = useState(null); // { title, message, onConfirm }
+
+  // Edición in-line de etiquetas
+  const [editingTags, setEditingTags] = useState(false);
+  const [draftTags, setDraftTags] = useState([]);
 
   const load = () => {
     setLoading(true);
@@ -106,11 +94,6 @@ export default function PropiedadDetalle() {
 
   useEffect(load, [id]);
   useEffect(() => { proveedoresApi.getAll().then(setProveedores); }, []);
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => {
-      if (data?.user) setCurrentUser(data.user);
-    });
-  }, []);
 
   const askConfirm = (title, message, onConfirm) => {
     setConfirm({ title, message, onConfirm });
@@ -185,59 +168,15 @@ export default function PropiedadDetalle() {
     load();
   };
 
-  // ── Comentarios ────────────────────────────────────────────────────────────
-  const getUserName = () =>
-    currentUser?.user_metadata?.full_name || currentUser?.email?.split('@')[0] || 'Usuario';
-
-  const handleAddComentario = async () => {
-    const texto = nuevoComentario.trim();
-    if (!texto) return;
-    setSavingComentario(true);
-    const nueva = {
-      id: Date.now().toString(),
-      texto,
-      usuario: getUserName(),
-      email: currentUser?.email || '',
-      created_at: new Date().toISOString(),
-    };
-    const comentarios = [...(propiedad.comentarios || []), nueva];
-    await propiedadesApi.update(id, { comentarios });
-    setPropiedad(p => ({ ...p, comentarios }));
-    setNuevoComentario('');
-    setSavingComentario(false);
+  // ── Tags ───────────────────────────────────────────────────────────────────
+  const startEditTags = () => {
+    setDraftTags(propiedad.tags || []);
+    setEditingTags(true);
   };
-
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleAddComentario();
-  };
-
-  const handleStartEdit = (c) => {
-    setEditingComentario({ id: c.id, texto: c.texto });
-  };
-
-  const handleSaveEdit = async () => {
-    if (!editingComentario?.texto.trim()) return;
-    setSavingEdit(true);
-    const comentarios = (propiedad.comentarios || []).map(c =>
-      c.id === editingComentario.id
-        ? { ...c, texto: editingComentario.texto.trim(), editado_at: new Date().toISOString() }
-        : c
-    );
-    await propiedadesApi.update(id, { comentarios });
-    setPropiedad(p => ({ ...p, comentarios }));
-    setEditingComentario(null);
-    setSavingEdit(false);
-  };
-
-  const handleCancelEdit = () => setEditingComentario(null);
-
-  const handleDeleteComentario = (cId) => {
-    askConfirm('Eliminar nota', '¿Seguro que quieres eliminar esta nota?', async () => {
-      const comentarios = (propiedad.comentarios || []).filter(c => c.id !== cId);
-      await propiedadesApi.update(id, { comentarios });
-      setPropiedad(p => ({ ...p, comentarios }));
-      setConfirm(null);
-    });
+  const saveTags = async () => {
+    await propiedadesApi.update(id, { tags: draftTags });
+    setEditingTags(false);
+    load();
   };
 
   if (loading) return <p className="text-gray-400 text-sm">Cargando...</p>;
@@ -246,6 +185,18 @@ export default function PropiedadDetalle() {
   const ubicacion = [propiedad.poblacion, propiedad.provincia].filter(Boolean).join(', ');
   const prov = propiedad.proveedores;
   const comentarios = propiedad.comentarios || [];
+
+  // Dirección completa para el mapa (Google Maps geocodifica el string)
+  const direccionCompleta = [propiedad.direccion, propiedad.poblacion, propiedad.provincia]
+    .filter(Boolean)
+    .join(', ');
+  const mapSrc = direccionCompleta
+    ? `https://www.google.com/maps?q=${encodeURIComponent(direccionCompleta)}&output=embed`
+    : null;
+
+  const precioM2 = propiedad.precio && propiedad.m2
+    ? Math.round(propiedad.precio / propiedad.m2)
+    : null;
 
   return (
     <div>
@@ -264,11 +215,19 @@ export default function PropiedadDetalle() {
                 <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-medium">Acepta financiación</span>
               )}
             </div>
-            {ubicacion && <p className="text-gray-500 text-sm mb-3">{ubicacion}</p>}
+            {(ubicacion || propiedad.direccion) && (
+              <p className="text-gray-500 text-sm mb-3 flex items-center gap-1">
+                <MapPin size={13} className="text-gray-400" />
+                {[propiedad.direccion, propiedad.poblacion, propiedad.provincia].filter(Boolean).join(', ')}
+              </p>
+            )}
             <div className="flex flex-wrap gap-6">
               <div>
                 <p className="text-xs text-gray-400 mb-0.5">Precio</p>
                 <p className="text-xl font-bold text-gray-900">{fmt(propiedad.precio)}</p>
+                {precioM2 && (
+                  <p className="text-xs text-gray-400">{precioM2.toLocaleString('es-ES')} €/m²</p>
+                )}
               </div>
               {propiedad.rentabilidad_bruta && (
                 <div>
@@ -283,12 +242,119 @@ export default function PropiedadDetalle() {
                 </div>
               )}
             </div>
+
+            {/* Características breves (m² / habs / baños / planta / año) */}
+            {(propiedad.m2 || propiedad.habitaciones || propiedad.banos || propiedad.planta || propiedad.anio_construccion) && (
+              <div className="flex flex-wrap gap-5 mt-4 pt-4 border-t border-gray-100 text-sm text-gray-600">
+                {propiedad.m2 && (
+                  <span className="flex items-center gap-1.5">
+                    <Ruler size={14} className="text-gray-400" />
+                    {propiedad.m2} m²
+                  </span>
+                )}
+                {propiedad.habitaciones && (
+                  <span className="flex items-center gap-1.5">
+                    <BedDouble size={14} className="text-gray-400" />
+                    {propiedad.habitaciones} hab.
+                  </span>
+                )}
+                {propiedad.banos && (
+                  <span className="flex items-center gap-1.5">
+                    <Bath size={14} className="text-gray-400" />
+                    {propiedad.banos} baños
+                  </span>
+                )}
+                {propiedad.planta && (
+                  <span>Planta {propiedad.planta}</span>
+                )}
+                {propiedad.anio_construccion && (
+                  <span>Año {propiedad.anio_construccion}</span>
+                )}
+              </div>
+            )}
+
+            {propiedad.ref_catastral && (
+              <p className="mt-2 text-xs text-gray-400 font-mono">
+                Ref. catastral: {propiedad.ref_catastral}
+              </p>
+            )}
+
             {propiedad.descripcion && (
               <p className="mt-3 text-sm text-gray-600">{propiedad.descripcion}</p>
             )}
+
+            {/* Etiquetas */}
+            <div className="mt-4 pt-4 border-t border-gray-100">
+              {editingTags ? (
+                <div className="space-y-2">
+                  <TagsInput
+                    value={draftTags}
+                    onChange={setDraftTags}
+                    placeholder="Escribe y pulsa enter…"
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={saveTags}
+                      className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg"
+                    >
+                      <Check size={11} /> Guardar
+                    </button>
+                    <button
+                      onClick={() => setEditingTags(false)}
+                      className="px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700 border border-gray-300 rounded-lg"
+                    >
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2 flex-wrap">
+                  {propiedad.tags?.length > 0 ? (
+                    <TagsDisplay tags={propiedad.tags} size="md" />
+                  ) : (
+                    <span className="text-xs text-gray-400">Sin etiquetas</span>
+                  )}
+                  <button
+                    onClick={startEditTags}
+                    className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-700"
+                  >
+                    <Pencil size={10} /> {propiedad.tags?.length > 0 ? 'Editar' : 'Añadir'}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
+
+      {/* ── Mapa ── */}
+      {mapSrc && (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 mb-5">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="font-semibold text-gray-900 flex items-center gap-2">
+              <MapPin size={16} className="text-blue-600" />
+              Ubicación
+            </h2>
+            <a
+              href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(direccionCompleta)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-blue-600 hover:underline flex items-center gap-1"
+            >
+              Abrir en Google Maps <ExternalLink size={11} />
+            </a>
+          </div>
+          <div className="rounded-lg overflow-hidden border border-gray-200">
+            <iframe
+              title="Mapa de la propiedad"
+              src={mapSrc}
+              className="w-full h-72 sm:h-96"
+              loading="lazy"
+              referrerPolicy="no-referrer-when-downgrade"
+            />
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-5">
 
@@ -430,112 +496,22 @@ export default function PropiedadDetalle() {
         )}
       </div>
 
-      {/* ── Notas / Comentarios ── */}
+      {/* ── Notas / Timeline ── */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5 mb-5">
         <h2 className="font-semibold text-gray-900 mb-4">Notas</h2>
-
-        {comentarios.length > 0 && (
-          <div className="space-y-5 mb-5">
-            {comentarios.map(c => (
-              <div key={c.id} className="flex gap-3 group">
-                {/* Avatar */}
-                <div className="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center text-white text-xs font-bold shrink-0 mt-0.5">
-                  {avatarInitials(c.usuario)}
-                </div>
-
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-baseline gap-2 flex-wrap mb-1">
-                    <span className="text-sm font-semibold text-gray-900">{c.usuario}</span>
-                    <span className="text-xs text-gray-400">{fmtDate(c.created_at)}</span>
-                    {c.editado_at && (
-                      <span className="text-xs text-gray-300 italic">editado</span>
-                    )}
-                  </div>
-
-                  {/* Modo edición */}
-                  {editingComentario?.id === c.id ? (
-                    <div className="space-y-2">
-                      <textarea
-                        rows={3}
-                        value={editingComentario.texto}
-                        onChange={e => setEditingComentario(prev => ({ ...prev, texto: e.target.value }))}
-                        className="w-full border border-blue-400 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                        autoFocus
-                      />
-                      <div className="flex gap-2">
-                        <button
-                          onClick={handleSaveEdit}
-                          disabled={savingEdit || !editingComentario.texto.trim()}
-                          className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg disabled:opacity-50"
-                        >
-                          <Check size={11} /> {savingEdit ? 'Guardando...' : 'Guardar'}
-                        </button>
-                        <button onClick={handleCancelEdit} className="px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700 border border-gray-300 rounded-lg">
-                          Cancelar
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="text-sm text-gray-700 whitespace-pre-wrap">{c.texto}</p>
-                  )}
-                </div>
-
-                {/* Acciones (solo si no estamos editando esta nota) */}
-                {editingComentario?.id !== c.id && (
-                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity shrink-0 mt-0.5">
-                    <button
-                      onClick={() => handleStartEdit(c)}
-                      className="p-1 text-gray-300 hover:text-blue-500 rounded"
-                      title="Editar nota"
-                    >
-                      <Pencil size={13} />
-                    </button>
-                    <button
-                      onClick={() => handleDeleteComentario(c.id)}
-                      className="p-1 text-gray-300 hover:text-red-400 rounded"
-                      title="Eliminar nota"
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {comentarios.length === 0 && (
-          <p className="text-sm text-gray-400 mb-4">Sin notas todavía.</p>
-        )}
-
-        {/* Input nueva nota */}
-        <div className="flex gap-3 items-start">
-          <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 shrink-0 mt-0.5">
-            {currentUser
-              ? <span className="text-xs font-bold">{avatarInitials(currentUser.user_metadata?.full_name || currentUser.email)}</span>
-              : <User2 size={14} />
-            }
-          </div>
-          <div className="flex-1 relative">
-            <textarea
-              rows={2}
-              value={nuevoComentario}
-              onChange={e => setNuevoComentario(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Añade una nota... (Cmd+Enter para guardar)"
-              className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none pr-12"
-            />
-            <button
-              onClick={handleAddComentario}
-              disabled={!nuevoComentario.trim() || savingComentario}
-              className="absolute right-2.5 bottom-2.5 p-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-              title="Guardar nota"
-            >
-              {savingComentario ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
-            </button>
-          </div>
-        </div>
-        <p className="text-xs text-gray-400 mt-1.5 ml-11">Cmd+Enter para guardar</p>
+        <NotesTimeline
+          comentarios={comentarios}
+          onConfirm={(title, message, cb) =>
+            askConfirm(title, message, async () => {
+              await cb();
+              setConfirm(null);
+            })
+          }
+          onSave={async (nueva) => {
+            await propiedadesApi.update(id, { comentarios: nueva });
+            setPropiedad((p) => ({ ...p, comentarios: nueva }));
+          }}
+        />
       </div>
 
       {/* ── Inversores que encajan ── */}
