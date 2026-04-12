@@ -42,7 +42,7 @@ async function dalleGenerate(prompt) {
       prompt,
       n: 1,
       size: '1024x1024',
-      quality: 'low',
+      quality: 'medium',
     }),
   });
   const data = await res.json();
@@ -132,8 +132,8 @@ MANDATORY — the photo MUST look like this:
 - Slightly dirty/dusty, things slightly out of place, lived-in mess
 - Old wooden doors, aluminium roller shutters, basic radiators
 - The kind of apartment you'd find on Idealista for 80.000€ in the outskirts
-- Photo taken quickly with a phone, slightly tilted, mediocre composition
-- Low-medium quality, slight blur, phone camera look
+- Photo taken with a modern smartphone, casual angle, not perfectly centered
+- Clear and sharp image (modern phones take decent photos), natural colors
 - NO staging, NO decoration, NO design, NO flowers, NO art on walls
 - NO professional photography, NO HDR, NO perfect lighting
 - NO watermarks, NO text, NO people
