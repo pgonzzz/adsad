@@ -1,7 +1,10 @@
 /**
  * Genera un "PDF" de una propiedad abriendo una ventana nueva con
  * HTML optimizado para impresión. El usuario puede guardar como PDF
- * desde el diálogo de impresión del navegador (⌘P / Ctrl+P).
+ * desde el diálogo de impresión del navegador.
+ *
+ * Si la propiedad tiene dirección/ubicación, geocodifica con Nominatim
+ * y añade un mapa estático de OpenStreetMap al documento.
  *
  * No requiere librerías externas — usa la API nativa window.print().
  */
@@ -15,7 +18,34 @@ function fmtEUR(n) {
   }).format(n);
 }
 
-export function generatePropiedadPdf(propiedad) {
+/**
+ * Geocodifica una dirección con Nominatim (OpenStreetMap).
+ * Devuelve { lat, lng } o null si no se puede resolver.
+ */
+async function geocode(query) {
+  if (!query) return null;
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&countrycodes=es&format=json&limit=1`;
+    const res = await fetch(url, {
+      headers: { 'Accept-Language': 'es', 'User-Agent': 'PisaliaCRM/1.0' },
+    });
+    const data = await res.json();
+    if (data.length > 0) {
+      return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+    }
+  } catch { /* silencioso */ }
+  return null;
+}
+
+/**
+ * Construye la URL de un mapa estático de OpenStreetMap.
+ * Usa el servicio gratuito staticmap.openstreetmap.de (sin API key).
+ */
+function staticMapUrl(lat, lng, width = 600, height = 280, zoom = 16) {
+  return `https://staticmap.openstreetmap.de/staticmap.php?center=${lat},${lng}&zoom=${zoom}&size=${width}x${height}&maptype=mapnik&markers=${lat},${lng},red-pushpin`;
+}
+
+export async function generatePropiedadPdf(propiedad) {
   const p = propiedad;
   const ubicacion = [p.direccion, p.poblacion, p.provincia].filter(Boolean).join(', ');
   const precioM2 =
@@ -32,6 +62,20 @@ export function generatePropiedadPdf(propiedad) {
     .join(' · ');
 
   const fotos = (p.fotos || []).slice(0, 6);
+
+  // Geocodificar para el mapa (en paralelo con nada — es rápido)
+  const coords = ubicacion ? await geocode(ubicacion) : null;
+  const mapImgUrl = coords ? staticMapUrl(coords.lat, coords.lng) : null;
+
+  const mapSection = mapImgUrl
+    ? `<div class="section map-section">
+        <h2>Ubicación</h2>
+        <div class="map-container">
+          <img src="${mapImgUrl}" alt="Mapa de ubicación" class="map-img" />
+          <div class="map-caption">${ubicacion}</div>
+        </div>
+      </div>`
+    : '';
 
   const html = `<!DOCTYPE html>
 <html lang="es">
@@ -64,6 +108,9 @@ export function generatePropiedadPdf(propiedad) {
     .badge.estado { background: #dbeafe; color: #1e40af; }
     .photos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
     .photos img { width: 100%; height: 140px; object-fit: cover; border-radius: 6px; border: 1px solid #e5e7eb; }
+    .map-container { border: 1px solid #e5e7eb; border-radius: 8px; overflow: hidden; }
+    .map-img { width: 100%; height: auto; display: block; }
+    .map-caption { padding: 8px 12px; font-size: 11px; color: #6b7280; background: #f9fafb; }
     .footer { margin-top: 30px; padding-top: 12px; border-top: 1px solid #e5e7eb; font-size: 10px; color: #9ca3af; display: flex; justify-content: space-between; }
     .ref { font-family: monospace; font-size: 11px; color: #6b7280; margin-top: 6px; }
     @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
@@ -101,6 +148,8 @@ export function generatePropiedadPdf(propiedad) {
 
   ${p.ref_catastral ? `<div class="ref">Ref. catastral: ${p.ref_catastral}</div>` : ''}
 
+  ${mapSection}
+
   ${
     fotos.length > 0
       ? `<div class="section"><h2>Fotos</h2><div class="photos">${fotos.map((url) => `<img src="${url}" />`).join('')}</div></div>`
@@ -123,8 +172,30 @@ export function generatePropiedadPdf(propiedad) {
   }
   win.document.write(html);
   win.document.close();
-  // Esperar a que las imágenes carguen antes de imprimir
+
+  // Esperar a que TODAS las imágenes (fotos + mapa) carguen antes de imprimir
   win.onload = () => {
-    setTimeout(() => win.print(), 300);
+    const images = win.document.querySelectorAll('img');
+    if (images.length === 0) {
+      setTimeout(() => win.print(), 200);
+      return;
+    }
+    let loaded = 0;
+    const checkDone = () => {
+      loaded++;
+      if (loaded >= images.length) {
+        setTimeout(() => win.print(), 300);
+      }
+    };
+    images.forEach((img) => {
+      if (img.complete) {
+        checkDone();
+      } else {
+        img.addEventListener('load', checkDone);
+        img.addEventListener('error', checkDone); // no bloquear si una falla
+      }
+    });
+    // Safety timeout — no esperar más de 8s
+    setTimeout(() => win.print(), 8000);
   };
 }
