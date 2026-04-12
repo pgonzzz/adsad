@@ -3,8 +3,9 @@ import { useParams, Link } from 'react-router-dom';
 import {
   ArrowLeft, ImagePlus, X, ExternalLink, Phone, Mail, Building2,
   FileText, Paperclip, Loader2, Download, Pencil, Check,
-  Ruler, BedDouble, Bath, MapPin
+  Ruler, BedDouble, Bath, MapPin, Printer
 } from 'lucide-react';
+import { generatePropiedadPdf } from '../components/PropiedadPdf';
 import { propiedadesApi, proveedoresApi } from '../api';
 import Badge from '../components/Badge';
 import Modal from '../components/Modal';
@@ -246,12 +247,21 @@ export default function PropiedadDetalle() {
               )}
             </div>
           </div>
-          <button
-            onClick={openEditModal}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg shadow-sm"
-          >
-            <Pencil size={12} /> Editar propiedad
-          </button>
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => generatePropiedadPdf(propiedad)}
+              className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 text-gray-600 hover:bg-gray-50 text-xs font-medium rounded-lg"
+              title="Generar PDF / Imprimir"
+            >
+              <Printer size={12} /> PDF
+            </button>
+            <button
+              onClick={openEditModal}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg shadow-sm"
+            >
+              <Pencil size={12} /> Editar propiedad
+            </button>
+          </div>
         </div>
 
         <div className="flex items-start gap-4 flex-wrap mt-2">

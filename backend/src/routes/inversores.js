@@ -1,5 +1,6 @@
 import express from 'express';
 import supabase from '../db/supabase.js';
+import { audit } from '../middleware/audit.js';
 
 const router = express.Router();
 
@@ -22,7 +23,7 @@ router.get('/:id', async (req, res) => {
   res.json(data);
 });
 
-router.post('/', async (req, res) => {
+router.post('/', audit('inversores', 'create'), async (req, res) => {
   const { data, error } = await supabase
     .from('inversores')
     .insert([req.body])
@@ -32,7 +33,7 @@ router.post('/', async (req, res) => {
   res.status(201).json(data);
 });
 
-router.put('/:id', async (req, res) => {
+router.put('/:id', audit('inversores', 'update'), async (req, res) => {
   const { data, error } = await supabase
     .from('inversores')
     .update(req.body)
@@ -43,7 +44,7 @@ router.put('/:id', async (req, res) => {
   res.json(data);
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', audit('inversores', 'delete'), async (req, res) => {
   const { error } = await supabase
     .from('inversores')
     .delete()

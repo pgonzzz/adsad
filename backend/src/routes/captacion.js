@@ -689,7 +689,46 @@ router.post('/agent/result', agentAuthMiddleware, async (req, res) => {
         .map(l => ({ ...l, campana_id }));
 
       if (newLeads.length > 0) {
-        await supabase.from('captacion_leads').insert(newLeads);
+        // ── Dedupe cross-campaña por teléfono ─────────────────────
+        // Si el teléfono del lead ya existe en cualquier otra campaña,
+        // marcar duplicado_de apuntando al lead original. También
+        // enriquecemos automáticamente si el teléfono coincide con
+        // un proveedor existente.
+        const phones = newLeads.map(l => l.telefono).filter(Boolean);
+        let phoneToOriginal = {};
+        let phoneToProveedor = {};
+
+        if (phones.length > 0) {
+          // Buscar leads previos con esos teléfonos (de cualquier campaña)
+          const { data: prevLeads } = await supabase
+            .from('captacion_leads')
+            .select('id, telefono')
+            .in('telefono', phones)
+            .order('created_at', { ascending: true })
+            .limit(500);
+          for (const pl of (prevLeads || [])) {
+            if (pl.telefono && !phoneToOriginal[pl.telefono]) {
+              phoneToOriginal[pl.telefono] = pl.id;
+            }
+          }
+
+          // Buscar proveedores con esos teléfonos
+          const { data: matchProvs } = await supabase
+            .from('proveedores')
+            .select('id, telefono')
+            .in('telefono', phones);
+          for (const pv of (matchProvs || [])) {
+            if (pv.telefono) phoneToProveedor[pv.telefono] = pv.id;
+          }
+        }
+
+        const enriched = newLeads.map(l => ({
+          ...l,
+          duplicado_de: (l.telefono && phoneToOriginal[l.telefono]) || null,
+          proveedor_id: (l.telefono && phoneToProveedor[l.telefono]) || null,
+        }));
+
+        await supabase.from('captacion_leads').insert(enriched);
       }
     }
   }

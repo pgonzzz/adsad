@@ -11,6 +11,7 @@ import matchesRouter from './routes/matches.js';
 import operacionesRouter from './routes/operaciones.js';
 import dashboardRouter from './routes/dashboard.js';
 import captacionRouter from './routes/captacion.js';
+import activityLogRouter from './routes/activity-log.js';
 import { startScheduler } from './scheduler.js';
 
 dotenv.config();
@@ -44,6 +45,7 @@ app.use('/api/propiedades', authMiddleware, propiedadesRouter);
 app.use('/api/matches', authMiddleware, matchesRouter);
 app.use('/api/operaciones', authMiddleware, operacionesRouter);
 app.use('/api/dashboard', authMiddleware, dashboardRouter);
+app.use('/api/activity-log', authMiddleware, activityLogRouter);
 // Captación: las rutas del agente no llevan authMiddleware (usan AGENT_KEY propia)
 app.use('/api/captacion', captacionRouter);
 

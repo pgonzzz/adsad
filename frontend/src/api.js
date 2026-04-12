@@ -67,6 +67,10 @@ export const dashboardApi = {
   getStats: () => get('/dashboard/stats'),
 };
 
+export const activityLogApi = {
+  getAll: (params) => get('/activity-log', params),
+};
+
 export const captacionApi = {
   getCampanas: () => get('/captacion/campanas'),
   createCampana: (data) => post('/captacion/campanas', data),

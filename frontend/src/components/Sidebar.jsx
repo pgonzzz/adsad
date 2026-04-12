@@ -10,6 +10,7 @@ import {
   LogOut,
   Search,
   Calculator,
+  History,
   X,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
@@ -24,6 +25,7 @@ const nav = [
   { to: '/matches', label: 'Matches', icon: GitMerge },
   { to: '/operaciones', label: 'Operaciones', icon: TrendingUp },
   { to: '/calculadora', label: 'Calculadora', icon: Calculator },
+  { to: '/actividad', label: 'Actividad', icon: History },
 ];
 
 export default function Sidebar({ open = false, onClose = () => {} }) {

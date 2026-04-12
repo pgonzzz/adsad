@@ -13,6 +13,7 @@ import Peticiones from './pages/Peticiones';
 import Captacion from './pages/Captacion';
 import PropiedadDetalle from './pages/PropiedadDetalle';
 import Calculadora from './pages/Calculadora';
+import AuditLog from './pages/AuditLog';
 
 export default function App() {
   return (
@@ -40,6 +41,7 @@ export default function App() {
           <Route path="captacion" element={<Captacion />} />
           <Route path="captacion/:campanaId" element={<Captacion />} />
           <Route path="calculadora" element={<Calculadora />} />
+          <Route path="actividad" element={<AuditLog />} />
         </Route>
       </Routes>
     </BrowserRouter>

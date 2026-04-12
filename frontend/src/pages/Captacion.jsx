@@ -1441,10 +1441,22 @@ function LeadsTable({ leads, showCampana = false, onEditLead, onDeleteLead, onRe
               {filtered.map(lead => (
                 <tr key={lead.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
                   <td className="py-2 pr-3 font-medium text-gray-800">
-                    {lead.nombre_vendedor || '—'}
-                    {lead.es_particular === false && (
-                      <span className="ml-1 text-xs text-gray-400">(agencia)</span>
-                    )}
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span>{lead.nombre_vendedor || '—'}</span>
+                      {lead.es_particular === false && (
+                        <span className="text-xs text-gray-400">(agencia)</span>
+                      )}
+                      {lead.duplicado_de && (
+                        <span className="px-1.5 py-0.5 text-[10px] font-semibold bg-amber-100 text-amber-700 rounded-full" title="Este teléfono ya apareció en otra campaña">
+                          DUPLICADO
+                        </span>
+                      )}
+                      {lead.proveedor_id && (
+                        <span className="px-1.5 py-0.5 text-[10px] font-semibold bg-purple-100 text-purple-700 rounded-full" title="El teléfono coincide con un proveedor existente">
+                          PROVEEDOR
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="py-2 pr-3 text-gray-600 font-mono text-xs">
                     {(() => {
@@ -1586,8 +1598,12 @@ function CampanaDetail({ campana, onBack, onRefresh, onEditLead, onDeleteLead, a
     enviado: leads.filter(l => l.estado === 'enviado').length,
     respondido: leads.filter(l => l.estado === 'respondido').length,
     convertido: leads.filter(l => l.estado === 'convertido').length,
-    // Solo los móviles son contactables por WhatsApp
-    nuevos_movil: leads.filter(l => l.estado === 'nuevo' && tipoTelefono(l.telefono) === 'movil').length,
+    duplicados: leads.filter(l => l.duplicado_de).length,
+    con_proveedor: leads.filter(l => l.proveedor_id).length,
+    // Solo los móviles no-duplicados son contactables por WhatsApp
+    nuevos_movil: leads.filter(l =>
+      l.estado === 'nuevo' && tipoTelefono(l.telefono) === 'movil' && !l.duplicado_de
+    ).length,
   };
 
   const handleScrape = async () => {
@@ -1612,9 +1628,10 @@ function CampanaDetail({ campana, onBack, onRefresh, onEditLead, onDeleteLead, a
   };
 
   const handleSendWA = async () => {
-    // Solo se envía a móviles — WhatsApp no funciona en fijos
+    // Solo se envía a móviles no-duplicados — WhatsApp no funciona en fijos
+    // y leads ya contactados en otra campaña se excluyen para no repetir
     const leadsToSend = leads.filter(l =>
-      l.estado === 'nuevo' && tipoTelefono(l.telefono) === 'movil'
+      l.estado === 'nuevo' && tipoTelefono(l.telefono) === 'movil' && !l.duplicado_de
     );
     if (leadsToSend.length === 0) {
       alert('No hay leads nuevos con teléfono móvil válido para enviar por WhatsApp.');
@@ -1717,6 +1734,22 @@ function CampanaDetail({ campana, onBack, onRefresh, onEditLead, onDeleteLead, a
           </div>
         ))}
       </div>
+
+      {/* Avisos de deduplicación */}
+      {(stats.duplicados > 0 || stats.con_proveedor > 0) && (
+        <div className="flex flex-wrap gap-3 mb-4 text-xs">
+          {stats.duplicados > 0 && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-amber-50 border border-amber-200 text-amber-700 rounded-lg">
+              <span className="font-semibold">{stats.duplicados}</span> leads con teléfono ya contactado en otra campaña (se excluyen del envío automático)
+            </span>
+          )}
+          {stats.con_proveedor > 0 && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-purple-50 border border-purple-200 text-purple-700 rounded-lg">
+              <span className="font-semibold">{stats.con_proveedor}</span> leads coinciden con un proveedor existente
+            </span>
+          )}
+        </div>
+      )}
 
       {/* Acciones */}
       <div className="flex gap-2 mb-4 flex-wrap">
