@@ -31,30 +31,82 @@ async function openaiChat(messages, json = false) {
 }
 
 async function dalleGenerate(prompt) {
-  const res = await fetch('https://api.openai.com/v1/images/generations', {
+  // NO USADO — reemplazado por generateRoomImage
+  throw new Error('Use generateRoomImage instead');
+}
+
+/**
+ * Genera una imagen de una habitación usando la Responses API de GPT-4o.
+ * Esto es el equivalente exacto de lo que hace ChatGPT: el modelo VE la
+ * imagen de referencia y genera una nueva a partir de ella en un solo paso.
+ */
+async function generateRoomImage(referenceImageData, roomPrompt) {
+  const input = [];
+
+  if (referenceImageData) {
+    input.push({
+      role: 'user',
+      content: [
+        { type: 'input_image', image_url: referenceImageData },
+        { type: 'input_text', text: roomPrompt },
+      ],
+    });
+  } else {
+    input.push({
+      role: 'user',
+      content: [
+        { type: 'input_text', text: roomPrompt },
+      ],
+    });
+  }
+
+  const res = await fetch('https://api.openai.com/v1/responses', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${OPENAI_KEY()}`,
     },
     body: JSON.stringify({
-      model: 'gpt-image-1',
-      prompt,
-      n: 1,
-      size: '1024x1024',
-      quality: 'medium',
+      model: 'gpt-4o',
+      input,
+      tools: [{
+        type: 'image_generation',
+        quality: 'medium',
+        size: '1024x1024',
+      }],
     }),
   });
+
   const data = await res.json();
   if (data.error) {
-    console.error('[gpt-image-1] Error:', JSON.stringify(data.error));
+    console.error('[GPT-4o Image] Error:', JSON.stringify(data.error));
     throw new Error(data.error.message || JSON.stringify(data.error));
   }
-  // gpt-image-1 devuelve base64 en vez de URL
-  if (data.data[0].b64_json) {
-    return { type: 'base64', data: data.data[0].b64_json };
+
+  // Buscar la imagen generada en el output
+  const imageOutput = (data.output || []).find(o => o.type === 'image_generation_call');
+  if (imageOutput?.result) {
+    return { type: 'base64', data: imageOutput.result };
   }
-  return { type: 'url', data: data.data[0].url };
+
+  // Formato alternativo
+  for (const item of (data.output || [])) {
+    if (item.content) {
+      for (const c of (Array.isArray(item.content) ? item.content : [])) {
+        if (c.type === 'output_image' && c.image_url) {
+          // Puede ser base64 data URL o URL
+          if (c.image_url.startsWith('data:')) {
+            const b64 = c.image_url.split(',')[1];
+            return { type: 'base64', data: b64 };
+          }
+          return { type: 'url', data: c.image_url };
+        }
+      }
+    }
+  }
+
+  console.error('[GPT-4o Image] Respuesta sin imagen:', JSON.stringify(data).slice(0, 500));
+  throw new Error('No se generó imagen en la respuesta');
 }
 
 /** Sube una imagen (base64 o URL) a Supabase storage */
@@ -107,35 +159,20 @@ Devuelve SOLO un JSON con esta estructura exacta:
   "descripcion": "..."
 }`;
 
-// ─── Prompts para fotos ───────────────────────────────────────────────────────
+// ─── Prompts para fotos (simples, como los del usuario en ChatGPT) ────────
 
 const ROOMS = [
-  { key: 'salon', label: 'salón-comedor', prompt: 'empty living room and dining area, no furniture at all' },
-  { key: 'cocina', label: 'cocina', prompt: 'kitchen with countertop, sink and cabinets only — no appliances on counters, no dishes' },
-  { key: 'hab1', label: 'habitación principal', prompt: 'empty main bedroom, no bed, no furniture, just the empty room with window' },
-  { key: 'hab2', label: 'habitación 2', prompt: 'empty second bedroom, no furniture, just walls, floor and window' },
-  { key: 'hab3', label: 'habitación 3', prompt: 'empty third bedroom, smallest room, no furniture at all' },
-  { key: 'bano1', label: 'baño principal', prompt: 'bathroom with toilet, sink and shower/bathtub — these are FIXED elements, not furniture' },
-  { key: 'bano2', label: 'baño 2', prompt: 'small secondary bathroom with toilet, sink and shower — fixed elements only' },
+  { key: 'salon', label: 'salón-comedor', prompt: 'un salón-comedor vacío (sin muebles)' },
+  { key: 'cocina', label: 'cocina', prompt: 'una cocina (solo muebles de cocina fijos, encimera y fregadero, sin electrodomésticos encima)' },
+  { key: 'hab1', label: 'habitación principal', prompt: 'una habitación principal vacía (sin muebles, sin cama)' },
+  { key: 'hab2', label: 'habitación 2', prompt: 'una segunda habitación vacía (sin muebles)' },
+  { key: 'hab3', label: 'habitación 3', prompt: 'una tercera habitación más pequeña, vacía (sin muebles)' },
+  { key: 'bano1', label: 'baño principal', prompt: 'un baño con ducha o bañera, lavabo e inodoro' },
+  { key: 'bano2', label: 'baño 2', prompt: 'un segundo baño más pequeño con ducha, lavabo e inodoro' },
 ];
 
-function buildImagePrompt(room, styleDescription) {
-  return `Realistic smartphone photo of the ${room.prompt} in a Spanish apartment.
-
-STYLE TO REPLICATE EXACTLY: ${styleDescription}
-
-CRITICAL RULES:
-- REPLICATE the EXACT same style, quality level, and condition as described in the style reference above
-- If the reference is a modest apartment, generate a modest apartment. If it's renovated, generate renovated. MATCH IT EXACTLY.
-- The rooms must be EMPTY — NO furniture, NO beds, NO sofas, NO tables, NO chairs, NO decorations, NO curtains
-- Only FIXED elements: kitchen cabinets, countertop, sink, toilet, shower/bathtub, built-in wardrobes if any
-- Same type of floors, walls, doors, and windows as the reference
-- Photo taken with a smartphone, natural casual angle
-- Clear and sharp image, natural lighting from windows
-- Pay special attention to DETAILS: faucets must look realistic and complete, shower screens must be full and proper, tiles must be consistent, doors must have proper handles
-- NO artifacts, NO impossible geometry, NO melting objects, NO weird reflections
-- NO watermarks, NO text, NO people
-- The apartment must look REAL and BELIEVABLE — someone scrolling Idealista should think it's a real listing photo`;
+function buildRoomPrompt(room) {
+  return `Crea una foto, realista, sin que parezca que se haya hecho con una cámara profesional, ni con luces profesionales, de ${room.prompt} de este piso. La habitación debe tener el mismo estilo, materiales y nivel de calidad que la foto de referencia.`;
 }
 
 // ─── Endpoint principal ───────────────────────────────────────────────────────
@@ -151,29 +188,7 @@ router.post('/', audit('propiedades', 'create'), async (req, res) => {
   try {
     console.log('[Generate] Iniciando generación de propiedad ficticia...');
 
-    // ── Paso 1: Analizar la foto de referencia con GPT-4o vision ──
-    let styleDescription = '';
-    if (referenceImage) {
-      console.log('[Generate] Analizando foto de referencia...');
-      styleDescription = await openaiChat([
-        {
-          role: 'system',
-          content: 'Describe the visual style, materials, condition and quality level of this apartment in 3-4 sentences in English. Be VERY specific about: floor type and color (ceramic tile pattern, wood, marble, laminate), wall color and condition (freshly painted, yellowed, cracked), door style (old wood, white lacquered, aluminium), window type (aluminium, PVC, wood), overall condition (new build, recently renovated, old but maintained, deteriorated). Also note: lighting quality, ceiling height, any visible fixtures. The goal is to recreate rooms with the EXACT same quality level and materials — not better, not worse.',
-        },
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: 'Describe the style of this apartment:' },
-            { type: 'image_url', image_url: { url: referenceImage } },
-          ],
-        },
-      ]);
-      console.log('[Generate] Estilo detectado:', styleDescription.slice(0, 100) + '...');
-    } else {
-      styleDescription = 'Typical Spanish apartment with ceramic tile floors, white painted walls, roller shutters, modest furniture. Built in the 1980s-1990s, reasonably maintained.';
-    }
-
-    // ── Paso 2: Generar datos ficticios realistas (en paralelo con fotos) ──
+    // ── Paso 1: Generar datos ficticios realistas (en paralelo con fotos) ──
     const dataPromise = openaiChat(
       [
         { role: 'system', content: SYSTEM_PROMPT_DATA },
@@ -182,18 +197,19 @@ router.post('/', audit('propiedades', 'create'), async (req, res) => {
       true
     ).then((raw) => JSON.parse(raw));
 
-    // ── Paso 3: Generar 7 fotos con DALL-E 3 (en paralelo, batches de 3) ──
-    console.log('[Generate] Generando 7 fotos con DALL-E 3...');
+    // ── Paso 2: Generar 7 fotos con GPT-4o (ve la referencia directamente) ──
+    console.log('[Generate] Generando 7 fotos con GPT-4o...');
     const photoUrls = [];
 
-    // Procesamos en batches de 3 para no saturar la API
-    for (let i = 0; i < ROOMS.length; i += 3) {
-      const batch = ROOMS.slice(i, i + 3);
+    // Procesamos en batches de 2 (GPT-4o image gen es más lento que DALL-E)
+    for (let i = 0; i < ROOMS.length; i += 2) {
+      const batch = ROOMS.slice(i, i + 2);
       const results = await Promise.all(
         batch.map(async (room) => {
           try {
             console.log(`[Generate]   Generando ${room.label}...`);
-            const imageResult = await dalleGenerate(buildImagePrompt(room, styleDescription));
+            const prompt = buildRoomPrompt(room);
+            const imageResult = await generateRoomImage(referenceImage, prompt);
             const storageUrl = await downloadAndUpload(imageResult, room.key);
             console.log(`[Generate]   ✓ ${room.label} subida`);
             return storageUrl;
