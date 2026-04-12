@@ -31,61 +31,71 @@ async function openaiChat(messages, json = false) {
 }
 
 /**
- * Genera una imagen con gpt-image-1.
- * Si hay imagen de referencia, usa /v1/images/edits (el modelo VE la imagen).
- * Si no hay referencia, usa /v1/images/generations (solo texto).
+ * Genera una imagen usando GPT-4o nativo (Responses API) — la misma
+ * tecnología que ChatGPT. El modelo VE la imagen de referencia y genera
+ * una nueva en un solo paso.
  */
-async function generateImage(prompt, referenceBuffer) {
-  if (referenceBuffer) {
-    // El modelo VE la imagen de referencia directamente
-    const formData = new FormData();
-    formData.append('model', 'gpt-image-1');
-    formData.append('image', new Blob([referenceBuffer], { type: 'image/png' }), 'reference.png');
-    formData.append('prompt', prompt);
-    formData.append('n', '1');
-    formData.append('size', '1024x1024');
-    formData.append('quality', 'medium');
-
-    const res = await fetch('https://api.openai.com/v1/images/edits', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${OPENAI_KEY()}` },
-      body: formData,
-    });
-    const data = await res.json();
-    if (data.error) {
-      console.error('[gpt-image-1 edits] Error:', JSON.stringify(data.error));
-      throw new Error(data.error.message || JSON.stringify(data.error));
-    }
-    if (data.data[0].b64_json) {
-      return { type: 'base64', data: data.data[0].b64_json };
-    }
-    return { type: 'url', data: data.data[0].url };
+async function generateImage(prompt, referenceDataUrl) {
+  const content = [];
+  if (referenceDataUrl) {
+    content.push({ type: 'input_image', image_url: referenceDataUrl });
   }
+  content.push({ type: 'input_text', text: prompt });
 
-  // Sin referencia: solo texto
-  const res = await fetch('https://api.openai.com/v1/images/generations', {
+  const body = {
+    model: 'gpt-4o',
+    input: [{ role: 'user', content }],
+    tools: [{ type: 'image_generation' }],
+  };
+
+  console.log('[ImageGen] Llamando Responses API con gpt-4o...');
+  const res = await fetch('https://api.openai.com/v1/responses', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${OPENAI_KEY()}`,
     },
-    body: JSON.stringify({
-      model: 'gpt-image-1',
-      prompt,
-      n: 1,
-      size: '1024x1024',
-      quality: 'medium',
-    }),
+    body: JSON.stringify(body),
   });
+
   const data = await res.json();
+
   if (data.error) {
-    console.error('[gpt-image-1] Error:', JSON.stringify(data.error));
+    console.error('[ImageGen] Error API:', JSON.stringify(data.error));
     throw new Error(data.error.message || JSON.stringify(data.error));
   }
-  if (data.data[0].b64_json) {
-    return { type: 'base64', data: data.data[0].b64_json };
+
+  // Extraer la imagen del output
+  for (const item of (data.output || [])) {
+    // Formato: image_generation_call con result en base64
+    if (item.type === 'image_generation_call' && item.result) {
+      console.log('[ImageGen] ✓ Imagen recibida (image_generation_call)');
+      return { type: 'base64', data: item.result };
+    }
+    // Buscar en content arrays
+    const contents = Array.isArray(item.content) ? item.content : [];
+    for (const c of contents) {
+      if (c.type === 'output_image' || c.type === 'image') {
+        const url = c.image_url || c.url;
+        if (url) {
+          console.log('[ImageGen] ✓ Imagen recibida (output_image)');
+          if (url.startsWith('data:')) {
+            return { type: 'base64', data: url.split(',')[1] };
+          }
+          return { type: 'url', data: url };
+        }
+      }
+    }
   }
-  return { type: 'url', data: data.data[0].url };
+
+  // Debug: loguear estructura completa
+  const summary = JSON.stringify(data, (key, val) => {
+    // Truncar strings base64 largos para no saturar logs
+    if (typeof val === 'string' && val.length > 200) return val.slice(0, 100) + '...[truncated]';
+    return val;
+  }).slice(0, 3000);
+  console.error('[ImageGen] No se encontró imagen en la respuesta:', summary);
+  throw new Error('La API no devolvió una imagen. Ver logs de Railway.');
 }
 
 /** Sube una imagen (base64 o URL) a Supabase storage */
@@ -167,17 +177,18 @@ router.post('/', audit('propiedades', 'create'), async (req, res) => {
   try {
     console.log('[Generate] Iniciando generación de propiedad ficticia...');
 
-    // ── Paso 1: Preparar imagen de referencia como buffer ──
-    let referenceBuffer = null;
+    // ── Paso 1: Preparar imagen de referencia ──
+    let referenceDataUrl = null;
     if (referenceImage) {
+      // Asegurar que es un data URL (si viene como URL pública, descargar)
       if (referenceImage.startsWith('data:')) {
-        const b64 = referenceImage.split(',')[1];
-        referenceBuffer = Buffer.from(b64, 'base64');
+        referenceDataUrl = referenceImage;
       } else {
         const imgRes = await fetch(referenceImage);
-        referenceBuffer = Buffer.from(await imgRes.arrayBuffer());
+        const buf = Buffer.from(await imgRes.arrayBuffer());
+        referenceDataUrl = `data:image/jpeg;base64,${buf.toString('base64')}`;
       }
-      console.log(`[Generate] Referencia cargada: ${referenceBuffer.length} bytes`);
+      console.log(`[Generate] Referencia preparada (${Math.round(referenceDataUrl.length / 1024)}KB)`);
     }
 
     // ── Paso 2: Generar datos ficticios realistas (en paralelo con fotos) ──
@@ -200,7 +211,7 @@ router.post('/', audit('propiedades', 'create'), async (req, res) => {
           try {
             console.log(`[Generate]   Generando ${room.label}...`);
             const prompt = buildRoomPrompt(room);
-            const imageResult = await generateImage(prompt, referenceBuffer);
+            const imageResult = await generateImage(prompt, referenceDataUrl);
             const storageUrl = await downloadAndUpload(imageResult, room.key);
             console.log(`[Generate]   ✓ ${room.label} subida`);
             return storageUrl;
