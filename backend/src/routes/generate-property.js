@@ -30,98 +30,31 @@ async function openaiChat(messages, json = false) {
   return data.choices[0].message.content;
 }
 
-async function dalleGenerate(prompt) {
-  // NO USADO — reemplazado por generateRoomImage
-  throw new Error('Use generateRoomImage instead');
-}
-
-/**
- * Genera una imagen de una habitación usando la Responses API de GPT-4o.
- * Esto es el equivalente exacto de lo que hace ChatGPT: el modelo VE la
- * imagen de referencia y genera una nueva a partir de ella en un solo paso.
- */
-async function generateRoomImage(referenceImageData, roomPrompt) {
-  const input = [];
-
-  if (referenceImageData) {
-    input.push({
-      role: 'user',
-      content: [
-        { type: 'input_image', image_url: referenceImageData },
-        { type: 'input_text', text: roomPrompt },
-      ],
-    });
-  } else {
-    input.push({
-      role: 'user',
-      content: [
-        { type: 'input_text', text: roomPrompt },
-      ],
-    });
-  }
-
-  const res = await fetch('https://api.openai.com/v1/responses', {
+/** Genera una imagen con gpt-image-1 */
+async function generateImage(prompt) {
+  const res = await fetch('https://api.openai.com/v1/images/generations', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${OPENAI_KEY()}`,
     },
     body: JSON.stringify({
-      model: 'gpt-4o',
-      input,
-      tools: [{
-        type: 'image_generation',
-        quality: 'medium',
-        size: '1024x1024',
-      }],
+      model: 'gpt-image-1',
+      prompt,
+      n: 1,
+      size: '1024x1024',
+      quality: 'medium',
     }),
   });
-
   const data = await res.json();
   if (data.error) {
-    console.error('[GPT-4o Image] Error:', JSON.stringify(data.error));
+    console.error('[gpt-image-1] Error:', JSON.stringify(data.error));
     throw new Error(data.error.message || JSON.stringify(data.error));
   }
-
-  // Log completo para debug (solo keys y types, no el base64 entero)
-  const outputSummary = (data.output || []).map(o => ({
-    type: o.type,
-    hasResult: !!o.result,
-    hasContent: !!o.content,
-    contentTypes: Array.isArray(o.content) ? o.content.map(c => c.type) : undefined,
-  }));
-  console.log('[GPT-4o Image] Output structure:', JSON.stringify(outputSummary));
-
-  // Formato 1: image_generation_call con result (base64 directo)
-  const imgCall = (data.output || []).find(o => o.type === 'image_generation_call');
-  if (imgCall?.result) {
-    return { type: 'base64', data: imgCall.result };
+  if (data.data[0].b64_json) {
+    return { type: 'base64', data: data.data[0].b64_json };
   }
-
-  // Formato 2: message con content array que tiene output_image
-  for (const item of (data.output || [])) {
-    const contents = Array.isArray(item.content) ? item.content : [];
-    for (const c of contents) {
-      if (c.type === 'output_image' && c.image_url) {
-        if (c.image_url.startsWith('data:')) {
-          return { type: 'base64', data: c.image_url.split(',')[1] };
-        }
-        return { type: 'url', data: c.image_url };
-      }
-      // Formato 3: image con base64
-      if (c.type === 'image' && c.image_url) {
-        if (c.image_url.startsWith('data:')) {
-          return { type: 'base64', data: c.image_url.split(',')[1] };
-        }
-        return { type: 'url', data: c.image_url };
-      }
-    }
-  }
-
-  // Si nada funcionó, loguear la respuesta completa (truncada)
-  const fullResp = JSON.stringify(data);
-  console.error('[GPT-4o Image] No se encontró imagen. Respuesta:', fullResp.slice(0, 2000));
-  throw new Error('No se generó imagen. Revisa los logs del backend para más detalle.');
+  return { type: 'url', data: data.data[0].url };
 }
 
 /** Sube una imagen (base64 o URL) a Supabase storage */
@@ -186,8 +119,8 @@ const ROOMS = [
   { key: 'bano2', label: 'baño 2', prompt: 'un segundo baño más pequeño con ducha, lavabo e inodoro' },
 ];
 
-function buildRoomPrompt(room) {
-  return `Crea una foto, realista, sin que parezca que se haya hecho con una cámara profesional, ni con luces profesionales, de ${room.prompt} de este piso. La habitación debe tener el mismo estilo, materiales y nivel de calidad que la foto de referencia.`;
+function buildRoomPrompt(room, styleDescription) {
+  return `Crea una foto realista, sin que parezca hecha con una cámara profesional ni con luces profesionales, de ${room.prompt} de un piso con estas características: ${styleDescription}. Foto hecha con un móvil normal, sin editar.`;
 }
 
 // ─── Endpoint principal ───────────────────────────────────────────────────────
@@ -203,7 +136,29 @@ router.post('/', audit('propiedades', 'create'), async (req, res) => {
   try {
     console.log('[Generate] Iniciando generación de propiedad ficticia...');
 
-    // ── Paso 1: Generar datos ficticios realistas (en paralelo con fotos) ──
+    // ── Paso 1: Analizar la foto de referencia con GPT-4o vision ──
+    let styleDescription = '';
+    if (referenceImage) {
+      console.log('[Generate] Analizando foto de referencia...');
+      styleDescription = await openaiChat([
+        {
+          role: 'system',
+          content: 'Describe en español, en 3-4 frases, el estilo visual de este piso: tipo de suelo y color, color de paredes, estado general (nuevo, reformado, antiguo, deteriorado), tipo de puertas, ventanas, iluminación, y calidad general. Sé muy específico para que alguien pueda recrear habitaciones con exactamente el mismo nivel de calidad y materiales.',
+        },
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'Describe el estilo de este piso:' },
+            { type: 'image_url', image_url: { url: referenceImage } },
+          ],
+        },
+      ]);
+      console.log('[Generate] Estilo detectado:', styleDescription.slice(0, 150));
+    } else {
+      styleDescription = 'Piso español típico con suelo de baldosa cerámica, paredes pintadas de blanco, persianas de aluminio, puertas de madera. Construido en los años 80-90, mantenimiento normal.';
+    }
+
+    // ── Paso 2: Generar datos ficticios realistas (en paralelo con fotos) ──
     const dataPromise = openaiChat(
       [
         { role: 'system', content: SYSTEM_PROMPT_DATA },
@@ -212,19 +167,18 @@ router.post('/', audit('propiedades', 'create'), async (req, res) => {
       true
     ).then((raw) => JSON.parse(raw));
 
-    // ── Paso 2: Generar 7 fotos con GPT-4o (ve la referencia directamente) ──
-    console.log('[Generate] Generando 7 fotos con GPT-4o...');
+    // ── Paso 3: Generar 7 fotos con gpt-image-1 ──
+    console.log('[Generate] Generando 7 fotos con gpt-image-1...');
     const photoUrls = [];
 
-    // Procesamos en batches de 2 (GPT-4o image gen es más lento que DALL-E)
-    for (let i = 0; i < ROOMS.length; i += 2) {
-      const batch = ROOMS.slice(i, i + 2);
+    for (let i = 0; i < ROOMS.length; i += 3) {
+      const batch = ROOMS.slice(i, i + 3);
       const results = await Promise.all(
         batch.map(async (room) => {
           try {
             console.log(`[Generate]   Generando ${room.label}...`);
-            const prompt = buildRoomPrompt(room);
-            const imageResult = await generateRoomImage(referenceImage, prompt);
+            const prompt = buildRoomPrompt(room, styleDescription);
+            const imageResult = await generateImage(prompt);
             const storageUrl = await downloadAndUpload(imageResult, room.key);
             console.log(`[Generate]   ✓ ${room.label} subida`);
             return storageUrl;
