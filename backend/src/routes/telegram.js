@@ -133,9 +133,9 @@ REGLAS ESTRICTAS:
 4. Si en las notas/descripción se menciona una reforma (coste de reforma), INCLÚYELO en la inversión total y tenlo en cuenta para la rentabilidad.
 5. Si hay IBI, comunidad u otros gastos mencionados en notas/descripción, INCLÚYELOS en costes fijos.
 6. Si hay precio y alquiler, incluye escenario hipotecario: financiación 80%, interés 3,5%, plazo 30 años. Calcula cuota y cashflow.
-7. OMITE secciones enteras si no hay datos para ellas. NO rellenes con inventos.
+7. OMITE secciones enteras si no hay datos para ellas. NO rellenes con inventos. NO pongas "no disponible" ni "por determinar" — simplemente no incluyas esa sección.
 8. PROHIBIDO INVENTAR DATOS. Si un dato no está en la ficha de la propiedad, NO lo pongas. Ni precios, ni alquileres, ni IBI, ni comunidad, ni nada. Solo usa lo que está en los campos de la propiedad que te paso.
-9. Si no hay estimacion_alquiler ni alquiler mencionado en notas, NO pongas sección de ingresos, ni rentabilidad, ni cashflow, ni escenario hipotecario.
+9. Si no hay estimacion_alquiler ni alquiler mencionado en notas, NO pongas sección de ingresos, ni rentabilidad, ni cashflow, ni escenario hipotecario. NADA de eso.
 10. Los números van con formato español: punto para miles, coma para decimales (125.000 €, 9,5%).
 11. Devuelve SOLO el texto de la publicación, sin explicaciones ni markdown.`;
 

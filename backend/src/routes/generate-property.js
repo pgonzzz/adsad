@@ -110,34 +110,32 @@ Devuelve SOLO un JSON con esta estructura exacta:
 // ─── Prompts para fotos ───────────────────────────────────────────────────────
 
 const ROOMS = [
-  { key: 'salon', label: 'salón-comedor', prompt: 'living room and dining area with a sofa, TV, dining table' },
-  { key: 'cocina', label: 'cocina', prompt: 'kitchen with countertop, appliances, cabinets. Small/medium Spanish apartment kitchen' },
-  { key: 'hab1', label: 'habitación principal', prompt: 'main bedroom with a double bed, wardrobe, window with natural light' },
-  { key: 'hab2', label: 'habitación 2', prompt: 'second bedroom, smaller, with a single bed or desk, modest furniture' },
-  { key: 'hab3', label: 'habitación 3', prompt: 'third bedroom, smallest room, single bed, simple decoration' },
-  { key: 'bano1', label: 'baño principal', prompt: 'main bathroom with bathtub or shower, sink, mirror, tiles on walls' },
-  { key: 'bano2', label: 'baño 2', prompt: 'small secondary bathroom/toilet with shower, sink, toilet, compact' },
+  { key: 'salon', label: 'salón-comedor', prompt: 'empty living room and dining area, no furniture at all' },
+  { key: 'cocina', label: 'cocina', prompt: 'kitchen with countertop, sink and cabinets only — no appliances on counters, no dishes' },
+  { key: 'hab1', label: 'habitación principal', prompt: 'empty main bedroom, no bed, no furniture, just the empty room with window' },
+  { key: 'hab2', label: 'habitación 2', prompt: 'empty second bedroom, no furniture, just walls, floor and window' },
+  { key: 'hab3', label: 'habitación 3', prompt: 'empty third bedroom, smallest room, no furniture at all' },
+  { key: 'bano1', label: 'baño principal', prompt: 'bathroom with toilet, sink and shower/bathtub — these are FIXED elements, not furniture' },
+  { key: 'bano2', label: 'baño 2', prompt: 'small secondary bathroom with toilet, sink and shower — fixed elements only' },
 ];
 
 function buildImagePrompt(room, styleDescription) {
-  return `Realistic smartphone photo of the ${room.prompt} in a MODEST, CHEAP Spanish apartment.
+  return `Realistic smartphone photo of the ${room.prompt} in a Spanish apartment.
 
-Style reference: ${styleDescription}
+STYLE TO REPLICATE EXACTLY: ${styleDescription}
 
-MANDATORY — the photo MUST look like this:
-- A CHEAP apartment, NOT renovated, NOT modern, NOT luxury
-- Old ceramic tile floors (typical 80s/90s Spanish tiles), yellowish walls
-- Basic, old, mismatched furniture — IKEA-level or lower, some pieces worn out
-- Fluorescent or bare-bulb lighting, NOT warm designer lighting
-- Slightly dirty/dusty, things slightly out of place, lived-in mess
-- Old wooden doors, aluminium roller shutters, basic radiators
-- The kind of apartment you'd find on Idealista for 80.000€ in the outskirts
-- Photo taken with a modern smartphone, casual angle, not perfectly centered
-- Clear and sharp image (modern phones take decent photos), natural colors
-- NO staging, NO decoration, NO design, NO flowers, NO art on walls
-- NO professional photography, NO HDR, NO perfect lighting
+CRITICAL RULES:
+- REPLICATE the EXACT same style, quality level, and condition as described in the style reference above
+- If the reference is a modest apartment, generate a modest apartment. If it's renovated, generate renovated. MATCH IT EXACTLY.
+- The rooms must be EMPTY — NO furniture, NO beds, NO sofas, NO tables, NO chairs, NO decorations, NO curtains
+- Only FIXED elements: kitchen cabinets, countertop, sink, toilet, shower/bathtub, built-in wardrobes if any
+- Same type of floors, walls, doors, and windows as the reference
+- Photo taken with a smartphone, natural casual angle
+- Clear and sharp image, natural lighting from windows
+- Pay special attention to DETAILS: faucets must look realistic and complete, shower screens must be full and proper, tiles must be consistent, doors must have proper handles
+- NO artifacts, NO impossible geometry, NO melting objects, NO weird reflections
 - NO watermarks, NO text, NO people
-- This is a WORKING CLASS apartment, not a showroom`;
+- The apartment must look REAL and BELIEVABLE — someone scrolling Idealista should think it's a real listing photo`;
 }
 
 // ─── Endpoint principal ───────────────────────────────────────────────────────
@@ -160,7 +158,7 @@ router.post('/', audit('propiedades', 'create'), async (req, res) => {
       styleDescription = await openaiChat([
         {
           role: 'system',
-          content: 'Describe the visual style, colors, materials, lighting and overall aesthetic of this apartment photo in 2-3 sentences in English. Focus on: floor type (tile, wood, laminate), wall color, furniture style, lighting quality, overall condition (new/old/renovated). Be specific so someone could recreate a similar look.',
+          content: 'Describe the visual style, materials, condition and quality level of this apartment in 3-4 sentences in English. Be VERY specific about: floor type and color (ceramic tile pattern, wood, marble, laminate), wall color and condition (freshly painted, yellowed, cracked), door style (old wood, white lacquered, aluminium), window type (aluminium, PVC, wood), overall condition (new build, recently renovated, old but maintained, deteriorated). Also note: lighting quality, ceiling height, any visible fixtures. The goal is to recreate rooms with the EXACT same quality level and materials — not better, not worse.',
         },
         {
           role: 'user',

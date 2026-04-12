@@ -131,9 +131,24 @@ export default function GeneratePropertyModal({ isOpen, onClose, onCreated }) {
                 </button>
               </div>
             ) : (
-              <label className="flex flex-col items-center justify-center w-full h-40 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors">
+              <label
+                className="flex flex-col items-center justify-center w-full h-40 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-colors"
+                onDragOver={(e) => { e.preventDefault(); e.currentTarget.classList.add('border-blue-400', 'bg-blue-50'); }}
+                onDragLeave={(e) => { e.currentTarget.classList.remove('border-blue-400', 'bg-blue-50'); }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.currentTarget.classList.remove('border-blue-400', 'bg-blue-50');
+                  const f = e.dataTransfer.files?.[0];
+                  if (f && f.type.startsWith('image/')) {
+                    setFile(f);
+                    const reader = new FileReader();
+                    reader.onload = (ev) => setPreview(ev.target.result);
+                    reader.readAsDataURL(f);
+                  }
+                }}
+              >
                 <ImagePlus size={28} className="text-gray-400 mb-2" />
-                <span className="text-sm text-gray-500">Sube una foto de un piso real</span>
+                <span className="text-sm text-gray-500">Arrastra una foto o haz clic para seleccionar</span>
                 <span className="text-xs text-gray-400 mt-1">La IA se inspirará en el estilo</span>
                 <input
                   ref={fileRef}

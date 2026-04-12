@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { generatePropiedadPdf } from '../components/PropiedadPdf';
 import TelegramPostModal from '../components/TelegramPostModal';
+import Lightbox from '../components/Lightbox';
 import { useToast } from '../components/Toast';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { propiedadesApi, proveedoresApi, telegramApi } from '../api';
@@ -53,9 +54,10 @@ export default function PropiedadDetalle() {
   const [propiedad, setPropiedad] = useState(null);
   const [proveedores, setProveedores] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [lightbox, setLightbox] = useState(null);
+  const [lightboxIdx, setLightboxIdx] = useState(null);
   const [uploadingFoto, setUploadingFoto] = useState(false);
   const [uploadingAdj, setUploadingAdj] = useState(false);
+  const [draggingFoto, setDraggingFoto] = useState(false);
 
   // Propietario
   const [editPropietario, setEditPropietario] = useState(false);
@@ -100,7 +102,8 @@ export default function PropiedadDetalle() {
 
   // ── Fotos ──────────────────────────────────────────────────────────────────
   const handleUploadFoto = async (e) => {
-    const files = Array.from(e.target.files);
+    // Soporta tanto input.files como DataTransfer.files (drag & drop)
+    const files = Array.from(e.target?.files || e);
     if (!files.length) return;
     setUploadingFoto(true);
     const nuevas = [...(propiedad.fotos || [])];
@@ -417,15 +420,30 @@ export default function PropiedadDetalle() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-5">
 
         {/* ── Fotos ── */}
-        <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-          <h2 className="font-semibold text-gray-900 mb-4">Fotos</h2>
+        <div
+          className={`lg:col-span-2 bg-white rounded-xl border-2 shadow-sm p-5 transition-colors ${
+            draggingFoto ? 'border-blue-400 bg-blue-50' : 'border-gray-200'
+          }`}
+          onDragOver={(e) => { e.preventDefault(); setDraggingFoto(true); }}
+          onDragLeave={() => setDraggingFoto(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDraggingFoto(false);
+            const files = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith('image/'));
+            if (files.length) handleUploadFoto(files);
+          }}
+        >
+          <h2 className="font-semibold text-gray-900 mb-4">
+            Fotos
+            {draggingFoto && <span className="text-sm text-blue-500 font-normal ml-2">Suelta aquí</span>}
+          </h2>
           <div className="flex flex-wrap gap-3">
-            {(propiedad.fotos || []).map(url => (
+            {(propiedad.fotos || []).map((url, i) => (
               <div key={url} className="relative group">
                 <img
                   src={url} alt=""
                   className="w-28 h-28 object-cover rounded-lg cursor-pointer hover:opacity-90 transition-opacity"
-                  onClick={() => setLightbox(url)}
+                  onClick={() => setLightboxIdx(i)}
                 />
                 <button
                   onClick={() => handleRemoveFoto(url)}
@@ -621,12 +639,12 @@ export default function PropiedadDetalle() {
       </div>
 
       {/* ── Lightbox ── */}
-      {lightbox && (
-        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4" onClick={() => setLightbox(null)}>
-          <img src={lightbox} alt="" className="max-w-full max-h-full rounded-lg shadow-xl" />
-          <button className="absolute top-4 right-4 text-white hover:text-gray-300"><X size={28} /></button>
-        </div>
-      )}
+      <Lightbox
+        images={propiedad.fotos || []}
+        index={lightboxIdx}
+        onClose={() => setLightboxIdx(null)}
+        onChange={setLightboxIdx}
+      />
 
       {/* ── Confirm dialog ── */}
       <ConfirmDialog
