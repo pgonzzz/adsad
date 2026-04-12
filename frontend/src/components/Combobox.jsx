@@ -19,7 +19,7 @@ export default function Combobox({ options = [], value, onChange, placeholder = 
     if (!open) setQuery(value || '');
   }, [value, open]);
 
-  const filtered = query.length === 0
+  const filtered = (!query || query === value)
     ? options.slice(0, 50)
     : options.filter(o => o.toLowerCase().includes(query.toLowerCase())).slice(0, 50);
 
@@ -42,7 +42,8 @@ export default function Combobox({ options = [], value, onChange, placeholder = 
           type="text"
           value={open ? query : (value || '')}
           onChange={e => { setQuery(e.target.value); setOpen(true); }}
-          onFocus={() => { setQuery(''); setOpen(true); }}
+          onFocus={() => { setQuery(value || ''); setOpen(true); }}
+          onClick={() => { if (!open) { setQuery(value || ''); setOpen(true); } }}
           placeholder={placeholder}
           disabled={disabled}
           className="flex-1 text-sm bg-transparent outline-none min-w-0"

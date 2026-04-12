@@ -6,6 +6,8 @@ import {
   Ruler, BedDouble, Bath, MapPin, Printer
 } from 'lucide-react';
 import { generatePropiedadPdf } from '../components/PropiedadPdf';
+import { useToast } from '../components/Toast';
+import LoadingSpinner from '../components/LoadingSpinner';
 import { propiedadesApi, proveedoresApi } from '../api';
 import Badge from '../components/Badge';
 import Modal from '../components/Modal';
@@ -42,35 +44,11 @@ function fmt(n) {
 }
 
 
-// ── Diálogo de confirmación in-app ────────────────────────────────────────────
-function ConfirmDialog({ open, title, message, onConfirm, onCancel, confirmLabel = 'Eliminar', danger = true }) {
-  if (!open) return null;
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6" onClick={e => e.stopPropagation()}>
-        <h3 className="text-base font-semibold text-gray-900 mb-2">{title}</h3>
-        {message && <p className="text-sm text-gray-500 mb-5">{message}</p>}
-        <div className="flex justify-end gap-2">
-          <button
-            onClick={onCancel}
-            className="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded-lg hover:bg-gray-50"
-          >
-            Cancelar
-          </button>
-          <button
-            onClick={onConfirm}
-            className={`px-4 py-2 text-sm text-white font-medium rounded-lg ${danger ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}`}
-          >
-            {confirmLabel}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
+import ConfirmDialog from '../components/ConfirmDialog';
 
 export default function PropiedadDetalle() {
   const { id } = useParams();
+  const toast = useToast();
   const [propiedad, setPropiedad] = useState(null);
   const [proveedores, setProveedores] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -205,12 +183,13 @@ export default function PropiedadDetalle() {
       });
       setEditModal(false);
       load();
+      toast.success('Propiedad actualizada');
     } finally {
       setSavingEdit(false);
     }
   };
 
-  if (loading) return <p className="text-gray-400 text-sm">Cargando...</p>;
+  if (loading) return <LoadingSpinner />;
   if (!propiedad) return <p className="text-red-500 text-sm">Propiedad no encontrada</p>;
 
   const ubicacion = [propiedad.poblacion, propiedad.provincia].filter(Boolean).join(', ');

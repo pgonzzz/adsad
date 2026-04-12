@@ -3,6 +3,9 @@ import { Zap } from 'lucide-react';
 import { matchesApi, operacionesApi } from '../api';
 import Badge from '../components/Badge';
 import Modal from '../components/Modal';
+import ConfirmDialog from '../components/ConfirmDialog';
+import { useToast } from '../components/Toast';
+import LoadingSpinner from '../components/LoadingSpinner';
 
 function ScoreBar({ score }) {
   const color = score >= 80 ? 'bg-green-500' : score >= 60 ? 'bg-blue-500' : score >= 40 ? 'bg-yellow-500' : 'bg-gray-300';
@@ -40,6 +43,8 @@ export default function Matches() {
   const [opModal, setOpModal] = useState(false);
   const [opMatchId, setOpMatchId] = useState(null);
   const [opForm, setOpForm] = useState(emptyOp);
+  const [confirm, setConfirm] = useState(null);
+  const toast = useToast();
 
   const load = () => {
     setLoading(true);
@@ -71,6 +76,7 @@ export default function Matches() {
       return;
     }
     await matchesApi.update(id, { estado: next });
+    toast.success('Match actualizado');
     load();
   };
 
@@ -86,6 +92,7 @@ export default function Matches() {
     });
     await matchesApi.update(opMatchId, { estado: 'cerrado' });
     setOpModal(false);
+    toast.success('Match actualizado');
     load();
   };
 
@@ -125,65 +132,108 @@ export default function Matches() {
             <option value="descartado">Descartado</option>
           </select>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[800px]">
-            <thead>
-              <tr className="border-b bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
-                <th className="px-4 py-3">Score</th>
-                <th className="px-4 py-3">Inversor</th>
-                <th className="px-4 py-3">Busca</th>
-                <th className="px-4 py-3">Propiedad</th>
-                <th className="px-4 py-3">Precio</th>
-                <th className="px-4 py-3">Estado</th>
-                <th className="px-4 py-3">Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr><td colSpan={7} className="text-center py-10 text-gray-400">Cargando...</td></tr>
-              ) : matches.length === 0 ? (
-                <tr><td colSpan={7} className="text-center py-10 text-gray-400">
-                  No hay matches. Añade inversores con peticiones y propiedades disponibles, luego pulsa "Generar matches".
-                </td></tr>
-              ) : matches.map(m => {
+        {loading ? (
+          <div className="py-10"><LoadingSpinner /></div>
+        ) : matches.length === 0 ? (
+          <p className="text-center py-10 text-gray-400">
+            No hay matches. Añade inversores con peticiones y propiedades disponibles, luego pulsa "Generar matches".
+          </p>
+        ) : (
+          <>
+            {/* Mobile card view */}
+            <div className="md:hidden space-y-3 p-4">
+              {matches.map(m => {
                 const inv = m.peticiones?.inversores;
                 const pet = m.peticiones;
                 const prop = m.propiedades;
                 return (
-                  <tr key={m.id} className="border-b last:border-0 hover:bg-gray-50">
-                    <td className="px-4 py-3"><ScoreBar score={m.score} /></td>
-                    <td className="px-4 py-3 font-medium text-gray-900">{inv?.nombre || '—'}</td>
-                    <td className="px-4 py-3 text-gray-600">
-                      <div>{pet?.tipos_propiedad?.join(', ') || '—'}</div>
-                      {pet?.zona && <div className="text-xs text-gray-400">{pet.zona}</div>}
-                    </td>
-                    <td className="px-4 py-3 text-gray-900">
-                      <div className="font-medium">{prop?.tipo} · {prop?.zona || '—'}</div>
-                      {prop?.rentabilidad_bruta && <div className="text-xs text-gray-400">{prop.rentabilidad_bruta}% bruta</div>}
-                    </td>
-                    <td className="px-4 py-3 text-gray-900">{fmt(prop?.precio)}</td>
-                    <td className="px-4 py-3"><Badge value={m.estado} /></td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap gap-1">
-                        {(ACCIONES[m.estado] || []).map(acc => (
-                          <button key={acc.next}
-                            onClick={() => cambiarEstado(m.id, acc.next)}
-                            className={`px-2 py-1 text-xs rounded font-medium ${
-                              acc.next === 'descartado' ? 'bg-red-50 text-red-600 hover:bg-red-100'
-                              : acc.next === 'operacion' ? 'bg-green-50 text-green-700 hover:bg-green-100'
-                              : 'bg-blue-50 text-blue-600 hover:bg-blue-100'
-                            }`}>
-                            {acc.label}
-                          </button>
-                        ))}
+                  <div key={m.id} className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium text-gray-900">{inv?.nombre || '—'}</span>
+                      <Badge value={m.estado} />
+                    </div>
+                    <div className="text-sm text-gray-600 space-y-1">
+                      <p><span className="text-gray-500">Petición:</span> {pet?.tipos_propiedad?.join(', ') || '—'}{pet?.zona ? ` · ${pet.zona}` : ''}</p>
+                      <p><span className="text-gray-500">Propiedad:</span> {prop?.tipo} · {prop?.zona || '—'} — {fmt(prop?.precio)}</p>
+                      <div className="flex items-center gap-2">
+                        <span className="text-gray-500">Score:</span>
+                        <ScoreBar score={m.score} />
                       </div>
-                    </td>
-                  </tr>
+                    </div>
+                    <div className="flex flex-wrap gap-1 pt-1 border-t border-gray-100">
+                      {(ACCIONES[m.estado] || []).map(acc => (
+                        <button key={acc.next}
+                          onClick={() => cambiarEstado(m.id, acc.next)}
+                          className={`px-2 py-1 text-xs rounded font-medium ${
+                            acc.next === 'descartado' ? 'bg-red-50 text-red-600 hover:bg-red-100'
+                            : acc.next === 'operacion' ? 'bg-green-50 text-green-700 hover:bg-green-100'
+                            : 'bg-blue-50 text-blue-600 hover:bg-blue-100'
+                          }`}>
+                          {acc.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 );
               })}
-            </tbody>
-          </table>
-        </div>
+            </div>
+
+            {/* Desktop table view */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-sm min-w-[800px]">
+                <thead>
+                  <tr className="border-b bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
+                    <th className="px-4 py-3">Score</th>
+                    <th className="px-4 py-3">Inversor</th>
+                    <th className="px-4 py-3">Busca</th>
+                    <th className="px-4 py-3">Propiedad</th>
+                    <th className="px-4 py-3">Precio</th>
+                    <th className="px-4 py-3">Estado</th>
+                    <th className="px-4 py-3">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {matches.map(m => {
+                    const inv = m.peticiones?.inversores;
+                    const pet = m.peticiones;
+                    const prop = m.propiedades;
+                    return (
+                      <tr key={m.id} className="border-b last:border-0 hover:bg-gray-50">
+                        <td className="px-4 py-3"><ScoreBar score={m.score} /></td>
+                        <td className="px-4 py-3 font-medium text-gray-900">{inv?.nombre || '—'}</td>
+                        <td className="px-4 py-3 text-gray-600">
+                          <div>{pet?.tipos_propiedad?.join(', ') || '—'}</div>
+                          {pet?.zona && <div className="text-xs text-gray-400">{pet.zona}</div>}
+                        </td>
+                        <td className="px-4 py-3 text-gray-900">
+                          <div className="font-medium">{prop?.tipo} · {prop?.zona || '—'}</div>
+                          {prop?.rentabilidad_bruta && <div className="text-xs text-gray-400">{prop.rentabilidad_bruta}% bruta</div>}
+                        </td>
+                        <td className="px-4 py-3 text-gray-900">{fmt(prop?.precio)}</td>
+                        <td className="px-4 py-3"><Badge value={m.estado} /></td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-wrap gap-1">
+                            {(ACCIONES[m.estado] || []).map(acc => (
+                              <button key={acc.next}
+                                onClick={() => cambiarEstado(m.id, acc.next)}
+                                className={`px-2 py-1 text-xs rounded font-medium ${
+                                  acc.next === 'descartado' ? 'bg-red-50 text-red-600 hover:bg-red-100'
+                                  : acc.next === 'operacion' ? 'bg-green-50 text-green-700 hover:bg-green-100'
+                                  : 'bg-blue-50 text-blue-600 hover:bg-blue-100'
+                                }`}>
+                                {acc.label}
+                              </button>
+                            ))}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
       </div>
 
       <Modal isOpen={opModal} onClose={() => setOpModal(false)} title="Crear operación">
@@ -219,6 +269,14 @@ export default function Matches() {
           </div>
         </form>
       </Modal>
+
+      <ConfirmDialog
+        open={!!confirm}
+        title={confirm?.title}
+        message={confirm?.message}
+        onConfirm={confirm?.onConfirm}
+        onCancel={() => setConfirm(null)}
+      />
     </div>
   );
 }

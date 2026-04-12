@@ -3,6 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { propiedadesApi, proveedoresApi } from '../api';
 import Modal from '../components/Modal';
 import Badge from '../components/Badge';
+import ConfirmDialog from '../components/ConfirmDialog';
+import { useToast } from '../components/Toast';
+import LoadingSpinner from '../components/LoadingSpinner';
 import { supabase } from '../lib/supabase';
 import { ImagePlus, X, Loader2, SlidersHorizontal, ChevronDown, Paperclip, FileText } from 'lucide-react';
 import Combobox, { ComboboxMunicipios } from '../components/Combobox';
@@ -68,8 +71,10 @@ export default function Propiedades() {
   const [uploadingAdj, setUploadingAdj] = useState(false);
   const [lightbox, setLightbox] = useState(null);
   const [showFilters, setShowFilters] = useState(false);
+  const [confirm, setConfirm] = useState(null);
   const fileRef = useRef();
   const adjRef = useRef();
+  const toast = useToast();
 
   // Filters
   const [fProvincia, setFProvincia] = useState('');
@@ -168,13 +173,21 @@ export default function Propiedades() {
     else await propiedadesApi.create(payload);
     setModal(false);
     loadPropiedades();
+    toast.success(editing ? 'Propiedad actualizada' : 'Propiedad creada');
   };
 
-  const handleDelete = async (id, e) => {
+  const handleDelete = (id, e) => {
     e.stopPropagation();
-    if (!confirm('¿Eliminar esta propiedad?')) return;
-    await propiedadesApi.delete(id);
-    loadPropiedades();
+    setConfirm({
+      title: 'Eliminar propiedad',
+      message: '¿Seguro que quieres eliminar esta propiedad? Esta acción no se puede deshacer.',
+      onConfirm: async () => {
+        await propiedadesApi.delete(id);
+        setConfirm(null);
+        loadPropiedades();
+        toast.success('Propiedad eliminada');
+      },
+    });
   };
 
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
@@ -301,7 +314,60 @@ export default function Propiedades() {
           </div>
         )}
 
-        <div className="overflow-x-auto">
+        {/* Mobile card view */}
+        <div className="md:hidden space-y-3 p-4">
+          {loading ? (
+            <LoadingSpinner />
+          ) : filtered.length === 0 ? (
+            <p className="text-center py-10 text-gray-400">No hay propiedades</p>
+          ) : filtered.map(p => (
+            <div key={p.id} className="border border-gray-200 rounded-lg p-4 space-y-2 cursor-pointer hover:bg-gray-50" onClick={() => navigate(`/propiedades/${p.id}`)}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-xs font-medium capitalize">{p.tipo}</span>
+                  <Badge value={p.estado} />
+                </div>
+              </div>
+              <div className="text-sm text-gray-900">
+                {p.provincia || p.poblacion ? (
+                  <span>{p.provincia || ''}{p.provincia && p.poblacion ? ' / ' : ''}{p.poblacion || ''}</span>
+                ) : '—'}
+                {(p.m2 || p.habitaciones) && (
+                  <div className="text-xs text-gray-400 mt-0.5">
+                    {p.m2 ? `${p.m2} m²` : ''}
+                    {p.m2 && p.habitaciones ? ' · ' : ''}
+                    {p.habitaciones ? `${p.habitaciones} hab` : ''}
+                    {p.banos ? ` · ${p.banos} bañ` : ''}
+                  </div>
+                )}
+              </div>
+              <div className="text-sm font-medium text-gray-900">
+                {fmt(p.precio)}
+                {p.precio && p.m2 && (
+                  <span className="text-xs text-gray-400 font-normal ml-1">
+                    ({Math.round(p.precio / p.m2)} €/m²)
+                  </span>
+                )}
+              </div>
+              {p.tags?.length > 0 && (
+                <div><TagsDisplay tags={p.tags} size="sm" max={3} /></div>
+              )}
+              <div className="flex items-center gap-2 pt-1" onClick={e => e.stopPropagation()}>
+                <button
+                  onClick={() => navigate(`/propiedades/${p.id}`)}
+                  className="px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700"
+                >
+                  Ficha
+                </button>
+                <button onClick={(e) => openEdit(p, e)} className="text-gray-400 hover:text-gray-700 text-xs">Editar</button>
+                <button onClick={(e) => handleDelete(p.id, e)} className="text-red-400 hover:text-red-600 text-xs">Eliminar</button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Desktop table view */}
+        <div className="hidden md:block overflow-x-auto">
           <table className="w-full text-sm min-w-[900px]">
             <thead>
               <tr className="border-b bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
@@ -318,7 +384,7 @@ export default function Propiedades() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={9} className="text-center py-10 text-gray-400">Cargando...</td></tr>
+                <tr><td colSpan={9} className="py-10"><LoadingSpinner /></td></tr>
               ) : filtered.length === 0 ? (
                 <tr><td colSpan={9} className="text-center py-10 text-gray-400">No hay propiedades</td></tr>
               ) : filtered.map(p => (
@@ -385,6 +451,14 @@ export default function Propiedades() {
           <button className="absolute top-4 right-4 text-white hover:text-gray-300"><X size={28} /></button>
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!confirm}
+        title={confirm?.title}
+        message={confirm?.message}
+        onConfirm={confirm?.onConfirm}
+        onCancel={() => setConfirm(null)}
+      />
 
       <Modal isOpen={modal} onClose={() => setModal(false)} title={editing ? 'Editar propiedad' : 'Nueva propiedad'} size="lg">
         <form onSubmit={handleSubmit} className="space-y-4">

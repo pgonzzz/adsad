@@ -19,7 +19,7 @@ export default function Modal({ isOpen, onClose, title, children, size = 'md' })
     >
       <div className={`bg-white sm:rounded-xl rounded-t-2xl shadow-xl w-full ${widths[size]} max-h-[95vh] sm:max-h-[90vh] flex flex-col`}>
         <div className="flex items-center justify-between px-4 sm:px-6 py-4 border-b shrink-0">
-          <h2 className="text-base font-semibold text-gray-900">{title}</h2>
+          <h2 className="text-base font-semibold text-gray-900 truncate">{title}</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors p-1 -m-1">
             <X size={20} />
           </button>

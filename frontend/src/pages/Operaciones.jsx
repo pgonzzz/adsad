@@ -2,6 +2,9 @@ import { useState, useEffect } from 'react';
 import { operacionesApi } from '../api';
 import Badge from '../components/Badge';
 import Modal from '../components/Modal';
+import ConfirmDialog from '../components/ConfirmDialog';
+import { useToast } from '../components/Toast';
+import LoadingSpinner from '../components/LoadingSpinner';
 
 function fmt(n) {
   if (!n) return '—';
@@ -20,6 +23,8 @@ export default function Operaciones() {
   const [modal, setModal] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({ estado: 'en_curso', precio_final: '', comision: '', fecha_firma: '', notas: '' });
+  const [confirm, setConfirm] = useState(null);
+  const toast = useToast();
 
   const load = () => {
     setLoading(true);
@@ -53,13 +58,21 @@ export default function Operaciones() {
     };
     await operacionesApi.update(editing.id, payload);
     setModal(false);
+    toast.success(editing ? 'Operación actualizada' : 'Operación creada');
     load();
   };
 
-  const handleDelete = async (id) => {
-    if (!confirm('¿Eliminar esta operación?')) return;
-    await operacionesApi.delete(id);
-    load();
+  const handleDelete = (id) => {
+    setConfirm({
+      title: 'Eliminar operación',
+      message: '¿Eliminar esta operación?',
+      onConfirm: async () => {
+        await operacionesApi.delete(id);
+        setConfirm(null);
+        toast.success('Operación eliminada');
+        load();
+      },
+    });
   };
 
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
@@ -98,49 +111,79 @@ export default function Operaciones() {
             <option value="caida">Caída</option>
           </select>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm min-w-[800px]">
-            <thead>
-              <tr className="border-b bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
-                <th className="px-4 py-3">Inversor</th>
-                <th className="px-4 py-3">Propiedad</th>
-                <th className="px-4 py-3">Estado</th>
-                <th className="px-4 py-3">Precio final</th>
-                <th className="px-4 py-3">Comisión</th>
-                <th className="px-4 py-3">Fecha firma</th>
-                <th className="px-4 py-3"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr><td colSpan={7} className="text-center py-10 text-gray-400">Cargando...</td></tr>
-              ) : ops.length === 0 ? (
-                <tr><td colSpan={7} className="text-center py-10 text-gray-400">
-                  No hay operaciones. Crea una desde la página de Matches cuando un match esté en estado "Negociando".
-                </td></tr>
-              ) : ops.map(op => {
+        {loading ? (
+          <div className="py-10"><LoadingSpinner /></div>
+        ) : ops.length === 0 ? (
+          <p className="text-center py-10 text-gray-400">
+            No hay operaciones. Crea una desde la página de Matches cuando un match esté en estado "Negociando".
+          </p>
+        ) : (
+          <>
+            {/* Mobile card view */}
+            <div className="md:hidden space-y-3 p-4">
+              {ops.map(op => {
                 const inv = op.matches?.peticiones?.inversores;
-                const prop = op.matches?.propiedades;
                 return (
-                  <tr key={op.id} className="border-b last:border-0 hover:bg-gray-50">
-                    <td className="px-4 py-3 font-medium text-gray-900">{inv?.nombre || '—'}</td>
-                    <td className="px-4 py-3 text-gray-700">
-                      {prop ? `${prop.tipo} · ${prop.zona || '—'}` : '—'}
-                    </td>
-                    <td className="px-4 py-3"><Badge value={op.estado} /></td>
-                    <td className="px-4 py-3 font-medium text-gray-900">{fmt(op.precio_final)}</td>
-                    <td className="px-4 py-3 text-gray-700">{fmt(op.comision)}</td>
-                    <td className="px-4 py-3 text-gray-600">{fmtDate(op.fecha_firma)}</td>
-                    <td className="px-4 py-3 text-right space-x-3">
-                      <button onClick={() => openEdit(op)} className="text-gray-400 hover:text-gray-700">Editar</button>
-                      <button onClick={() => handleDelete(op.id)} className="text-red-400 hover:text-red-600">Eliminar</button>
-                    </td>
-                  </tr>
+                  <div key={op.id} className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-medium text-gray-900">{inv?.nombre || '—'}</span>
+                      <Badge value={op.estado} />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-sm">
+                      <div><span className="text-gray-500">Precio final:</span> <span className="font-medium">{fmt(op.precio_final)}</span></div>
+                      <div><span className="text-gray-500">Comisión:</span> <span className="font-medium">{fmt(op.comision)}</span></div>
+                      <div><span className="text-gray-500">Fecha firma:</span> <span>{fmtDate(op.fecha_firma)}</span></div>
+                    </div>
+                    {op.notas && <p className="text-xs text-gray-500 truncate">{op.notas}</p>}
+                    <div className="flex justify-end gap-3 pt-1 border-t border-gray-100">
+                      <button onClick={() => openEdit(op)} className="text-sm text-gray-400 hover:text-gray-700">Editar</button>
+                      <button onClick={() => handleDelete(op.id)} className="text-sm text-red-400 hover:text-red-600">Eliminar</button>
+                    </div>
+                  </div>
                 );
               })}
-            </tbody>
-          </table>
-        </div>
+            </div>
+
+            {/* Desktop table view */}
+            <div className="hidden md:block overflow-x-auto">
+              <table className="w-full text-sm min-w-[800px]">
+                <thead>
+                  <tr className="border-b bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
+                    <th className="px-4 py-3">Inversor</th>
+                    <th className="px-4 py-3">Propiedad</th>
+                    <th className="px-4 py-3">Estado</th>
+                    <th className="px-4 py-3">Precio final</th>
+                    <th className="px-4 py-3">Comisión</th>
+                    <th className="px-4 py-3">Fecha firma</th>
+                    <th className="px-4 py-3"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ops.map(op => {
+                    const inv = op.matches?.peticiones?.inversores;
+                    const prop = op.matches?.propiedades;
+                    return (
+                      <tr key={op.id} className="border-b last:border-0 hover:bg-gray-50">
+                        <td className="px-4 py-3 font-medium text-gray-900">{inv?.nombre || '—'}</td>
+                        <td className="px-4 py-3 text-gray-700">
+                          {prop ? `${prop.tipo} · ${prop.zona || '—'}` : '—'}
+                        </td>
+                        <td className="px-4 py-3"><Badge value={op.estado} /></td>
+                        <td className="px-4 py-3 font-medium text-gray-900">{fmt(op.precio_final)}</td>
+                        <td className="px-4 py-3 text-gray-700">{fmt(op.comision)}</td>
+                        <td className="px-4 py-3 text-gray-600">{fmtDate(op.fecha_firma)}</td>
+                        <td className="px-4 py-3 text-right space-x-3">
+                          <button onClick={() => openEdit(op)} className="text-gray-400 hover:text-gray-700">Editar</button>
+                          <button onClick={() => handleDelete(op.id)} className="text-red-400 hover:text-red-600">Eliminar</button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
       </div>
 
       <Modal isOpen={modal} onClose={() => setModal(false)} title="Editar operación">
@@ -184,6 +227,14 @@ export default function Operaciones() {
           </div>
         </form>
       </Modal>
+
+      <ConfirmDialog
+        open={!!confirm}
+        title={confirm?.title}
+        message={confirm?.message}
+        onConfirm={confirm?.onConfirm}
+        onCancel={() => setConfirm(null)}
+      />
     </div>
   );
 }

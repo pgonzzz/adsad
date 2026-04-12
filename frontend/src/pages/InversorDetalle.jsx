@@ -4,6 +4,9 @@ import { ArrowLeft, Pencil, Check } from 'lucide-react';
 import { inversoresApi, peticionesApi, propiedadesApi } from '../api';
 import Modal from '../components/Modal';
 import Badge from '../components/Badge';
+import ConfirmDialog from '../components/ConfirmDialog';
+import { useToast } from '../components/Toast';
+import LoadingSpinner from '../components/LoadingSpinner';
 import Combobox, { ComboboxMunicipios } from '../components/Combobox';
 import TagsInput, { TagsDisplay } from '../components/TagsInput';
 import NotesTimeline from '../components/NotesTimeline';
@@ -42,6 +45,7 @@ function fmt(n) {
 
 export default function InversorDetalle() {
   const { id } = useParams();
+  const toast = useToast();
   const [inversor, setInversor] = useState(null);
   const [propiedades, setPropiedades] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -50,6 +54,7 @@ export default function InversorDetalle() {
   const [form, setForm] = useState(emptyPeticion);
   const [savingPropiedad, setSavingPropiedad] = useState(false);
   const [selectedPropiedad, setSelectedPropiedad] = useState('');
+  const [confirmDlg, setConfirmDlg] = useState(null);
 
   // Edición in-line de etiquetas
   const [editingTags, setEditingTags] = useState(false);
@@ -108,12 +113,20 @@ export default function InversorDetalle() {
     else await peticionesApi.create(payload);
     setModal(false);
     load();
+    toast.success(editing ? 'Petición actualizada' : 'Petición creada');
   };
 
-  const handleDelete = async (petId) => {
-    if (!confirm('¿Eliminar esta petición?')) return;
-    await peticionesApi.delete(petId);
-    load();
+  const handleDelete = (petId) => {
+    setConfirmDlg({
+      title: 'Eliminar petición',
+      message: '¿Seguro que quieres eliminar esta petición?',
+      onConfirm: async () => {
+        await peticionesApi.delete(petId);
+        setConfirmDlg(null);
+        load();
+        toast.success('Petición eliminada');
+      },
+    });
   };
 
   const handleAsociarPropiedad = async () => {
@@ -135,7 +148,7 @@ export default function InversorDetalle() {
 
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
 
-  if (loading) return <p className="text-gray-400">Cargando...</p>;
+  if (loading) return <LoadingSpinner />;
   if (!inversor) return <p className="text-red-500">Inversor no encontrado</p>;
 
   const propiedadAsociada = inversor.propiedad;
@@ -404,6 +417,14 @@ export default function InversorDetalle() {
           </div>
         </form>
       </Modal>
+
+      <ConfirmDialog
+        open={!!confirmDlg}
+        title={confirmDlg?.title}
+        message={confirmDlg?.message}
+        onConfirm={confirmDlg?.onConfirm}
+        onCancel={() => setConfirmDlg(null)}
+      />
     </div>
   );
 }

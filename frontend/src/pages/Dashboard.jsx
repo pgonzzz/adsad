@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Users, Building2, MessageSquare, UserCheck, Home, TrendingUp } from 'lucide-react';
 import { dashboardApi } from '../api';
+import LoadingSpinner from '../components/LoadingSpinner';
 
 const PIPELINE = [
   { value: 'en_busca',     label: 'En busca',          color: 'bg-blue-500' },
@@ -22,15 +23,14 @@ const PROP_ESTADOS = [
 
 function StatCard({ label, value, icon: Icon, color, to, sub }) {
   const content = (
-    <div className={`bg-white rounded-xl border border-gray-200 p-3 sm:p-5 flex items-center gap-3 sm:gap-4 shadow-sm ${to ? 'hover:shadow-md transition-shadow cursor-pointer' : ''}`}>
-      <div className={`p-2.5 sm:p-3 rounded-lg ${color} shrink-0`}>
-        <Icon size={18} className="text-white sm:hidden" />
-        <Icon size={20} className="text-white hidden sm:block" />
+    <div className={`bg-white rounded-xl border border-gray-200 p-3 sm:p-5 flex flex-col sm:flex-row items-center gap-2 sm:gap-4 shadow-sm ${to ? 'hover:shadow-md transition-shadow cursor-pointer' : ''}`}>
+      <div className={`p-2 sm:p-3 rounded-lg ${color} shrink-0`}>
+        <Icon size={18} className="text-white" />
       </div>
-      <div className="min-w-0">
-        <p className="text-xl sm:text-2xl font-bold text-gray-900">{value ?? '—'}</p>
-        <p className="text-xs sm:text-sm text-gray-500 leading-tight">{label}</p>
-        {sub && <p className="text-[10px] sm:text-xs text-gray-400 mt-0.5 truncate">{sub}</p>}
+      <div className="min-w-0 text-center sm:text-left">
+        <p className="text-lg sm:text-2xl font-bold text-gray-900">{value ?? '—'}</p>
+        <p className="text-[11px] sm:text-sm text-gray-500 leading-tight">{label}</p>
+        {sub && <p className="hidden sm:block text-xs text-gray-400 mt-0.5 truncate">{sub}</p>}
       </div>
     </div>
   );
@@ -114,7 +114,7 @@ export default function Dashboard() {
   }, []);
 
   if (loading) return (
-    <div className="flex items-center justify-center h-40 text-gray-400 text-sm">Cargando...</div>
+    <LoadingSpinner />
   );
 
   const totalProp = stats ? Object.values(stats.propPorEstado || {}).reduce((a, b) => a + b, 0) : 0;

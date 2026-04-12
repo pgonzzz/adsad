@@ -25,7 +25,7 @@ const ESTADO_CAMPANA_COLORS = {
 
 const ESTADO_LEAD_COLORS = {
   nuevo: 'blue',
-  enviado: 'yellow',
+  enviado: 'amber',
   respondido: 'green',
   descartado: 'red',
   convertido: 'purple',

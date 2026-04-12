@@ -5,6 +5,9 @@ import Badge from '../components/Badge';
 import Combobox, { ComboboxMunicipios } from '../components/Combobox';
 import { PROVINCIAS } from '../data/municipios';
 import { SlidersHorizontal, X, List, Columns } from 'lucide-react';
+import ConfirmDialog from '../components/ConfirmDialog';
+import { useToast } from '../components/Toast';
+import LoadingSpinner from '../components/LoadingSpinner';
 
 function fmt(n) {
   if (!n) return null;
@@ -128,6 +131,8 @@ export default function Peticiones() {
   const [showFilters, setShowFilters] = useState(false);
   const [filters, setFilters] = useState(emptyFilters);
   const dragItem = useRef(null);
+  const [confirm, setConfirm] = useState(null);
+  const toast = useToast();
 
   const load = () => {
     setLoading(true);
@@ -309,7 +314,7 @@ export default function Peticiones() {
       </div>
 
       {loading ? (
-        <p className="text-gray-400">Cargando...</p>
+        <LoadingSpinner />
       ) : view === 'kanban' ? (
         // ── Vista Kanban ──
         <div className="flex gap-4 overflow-x-auto pb-4" style={{ minHeight: 400 }}>
@@ -325,64 +330,115 @@ export default function Peticiones() {
         </div>
       ) : (
         // ── Vista Lista ──
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-x-auto">
-          <table className="w-full text-sm min-w-[900px]">
-            <thead>
-              <tr className="border-b bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
-                <th className="px-4 py-3">Inversor</th>
-                <th className="px-4 py-3">Pipeline</th>
-                <th className="px-4 py-3">Provincia</th>
-                <th className="px-4 py-3">Población</th>
-                <th className="px-4 py-3">Tipos</th>
-                <th className="px-4 py-3">Precio</th>
-                <th className="px-4 py-3">Rent. mín.</th>
-                <th className="px-4 py-3">Financiación</th>
-                <th className="px-4 py-3">Estado</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.length === 0 ? (
-                <tr><td colSpan={9} className="text-center py-10 text-gray-400">No hay peticiones con esos filtros</td></tr>
-              ) : filtered.map(p => {
-                const stage = PIPELINE.find(s => s.value === (p.inversores?.pipeline || 'en_busca'));
-                return (
-                  <tr key={p.id} className="border-b last:border-0 hover:bg-gray-50">
-                    <td className="px-4 py-3 font-medium">
-                      {p.inversores ? (
-                        <Link to={`/inversores/${p.inversores.id}`} className="text-blue-600 hover:underline">
-                          {[p.inversores.nombre, p.inversores.apellidos].filter(Boolean).join(' ')}
-                        </Link>
-                      ) : '—'}
-                    </td>
-                    <td className="px-4 py-3">
-                      {stage && <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${stage.tag}`}>{stage.label}</span>}
-                    </td>
-                    <td className="px-4 py-3 text-gray-600">{p.provincia || '—'}</td>
-                    <td className="px-4 py-3 text-gray-600">{p.poblacion || '—'}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap gap-1">
-                        {p.tipos_propiedad?.length > 0 ? p.tipos_propiedad.map(t => (
-                          <span key={t} className="px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">{t}</span>
-                        )) : <span className="text-gray-400">—</span>}
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
+          {filtered.length === 0 ? (
+            <p className="text-center py-10 text-gray-400">No hay peticiones con esos filtros</p>
+          ) : (
+            <>
+              {/* Mobile card view */}
+              <div className="md:hidden space-y-3 p-4">
+                {filtered.map(p => {
+                  const inversorNombre = p.inversores
+                    ? [p.inversores.nombre, p.inversores.apellidos].filter(Boolean).join(' ')
+                    : '—';
+                  return (
+                    <div key={p.id} className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm space-y-2">
+                      <div className="flex items-center justify-between">
+                        {p.inversores ? (
+                          <Link to={`/inversores/${p.inversores.id}`} className="font-medium text-blue-600 hover:underline">
+                            {inversorNombre}
+                          </Link>
+                        ) : <span className="font-medium text-gray-900">—</span>}
+                        <Badge value={p.estado} />
                       </div>
-                    </td>
-                    <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
-                      {(p.precio_min || p.precio_max) ? <>{fmt(p.precio_min)} – {fmt(p.precio_max)}</> : '—'}
-                    </td>
-                    <td className="px-4 py-3 text-gray-600">{p.rentabilidad_min ? `${p.rentabilidad_min}%` : '—'}</td>
-                    <td className="px-4 py-3">
-                      {p.necesita_financiacion
-                        ? <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full text-xs font-medium">Sí</span>
-                        : <span className="text-gray-400 text-xs">No</span>}
-                    </td>
-                    <td className="px-4 py-3"><Badge value={p.estado} /></td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                      {p.tipos_propiedad?.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {p.tipos_propiedad.map(t => (
+                            <span key={t} className="px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">{t}</span>
+                          ))}
+                        </div>
+                      )}
+                      <div className="text-sm text-gray-600">
+                        {(p.precio_min || p.precio_max) && (
+                          <p>{fmt(p.precio_min)} – {fmt(p.precio_max)}</p>
+                        )}
+                        {(p.provincia || p.poblacion) && (
+                          <p>{[p.poblacion, p.provincia].filter(Boolean).join(', ')}</p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Desktop table view */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-sm min-w-[900px]">
+                  <thead>
+                    <tr className="border-b bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
+                      <th className="px-4 py-3">Inversor</th>
+                      <th className="px-4 py-3">Pipeline</th>
+                      <th className="px-4 py-3">Provincia</th>
+                      <th className="px-4 py-3">Población</th>
+                      <th className="px-4 py-3">Tipos</th>
+                      <th className="px-4 py-3">Precio</th>
+                      <th className="px-4 py-3">Rent. mín.</th>
+                      <th className="px-4 py-3">Financiación</th>
+                      <th className="px-4 py-3">Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.map(p => {
+                      const stage = PIPELINE.find(s => s.value === (p.inversores?.pipeline || 'en_busca'));
+                      return (
+                        <tr key={p.id} className="border-b last:border-0 hover:bg-gray-50">
+                          <td className="px-4 py-3 font-medium">
+                            {p.inversores ? (
+                              <Link to={`/inversores/${p.inversores.id}`} className="text-blue-600 hover:underline">
+                                {[p.inversores.nombre, p.inversores.apellidos].filter(Boolean).join(' ')}
+                              </Link>
+                            ) : '—'}
+                          </td>
+                          <td className="px-4 py-3">
+                            {stage && <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${stage.tag}`}>{stage.label}</span>}
+                          </td>
+                          <td className="px-4 py-3 text-gray-600">{p.provincia || '—'}</td>
+                          <td className="px-4 py-3 text-gray-600">{p.poblacion || '—'}</td>
+                          <td className="px-4 py-3">
+                            <div className="flex flex-wrap gap-1">
+                              {p.tipos_propiedad?.length > 0 ? p.tipos_propiedad.map(t => (
+                                <span key={t} className="px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded text-xs">{t}</span>
+                              )) : <span className="text-gray-400">—</span>}
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-gray-600 whitespace-nowrap">
+                            {(p.precio_min || p.precio_max) ? <>{fmt(p.precio_min)} – {fmt(p.precio_max)}</> : '—'}
+                          </td>
+                          <td className="px-4 py-3 text-gray-600">{p.rentabilidad_min ? `${p.rentabilidad_min}%` : '—'}</td>
+                          <td className="px-4 py-3">
+                            {p.necesita_financiacion
+                              ? <span className="px-2 py-0.5 bg-amber-100 text-amber-700 rounded-full text-xs font-medium">Sí</span>
+                              : <span className="text-gray-400 text-xs">No</span>}
+                          </td>
+                          <td className="px-4 py-3"><Badge value={p.estado} /></td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!confirm}
+        title={confirm?.title}
+        message={confirm?.message}
+        onConfirm={confirm?.onConfirm}
+        onCancel={() => setConfirm(null)}
+      />
     </div>
   );
 }

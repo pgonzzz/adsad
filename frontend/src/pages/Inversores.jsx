@@ -2,6 +2,9 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { inversoresApi } from '../api';
 import Modal from '../components/Modal';
+import ConfirmDialog from '../components/ConfirmDialog';
+import { useToast } from '../components/Toast';
+import LoadingSpinner from '../components/LoadingSpinner';
 
 const PIPELINE = [
   { value: 'en_busca',     label: 'En busca de propiedad',    bg: 'bg-blue-100',   text: 'text-blue-700' },
@@ -37,6 +40,8 @@ export default function Inversores() {
   const [modal, setModal] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(empty);
+  const [confirm, setConfirm] = useState(null);
+  const toast = useToast();
 
   const load = () => {
     setLoading(true);
@@ -69,12 +74,20 @@ export default function Inversores() {
     else await inversoresApi.create(form);
     setModal(false);
     load();
+    toast.success(editing ? 'Inversor actualizado' : 'Inversor creado');
   };
 
-  const handleDelete = async (id) => {
-    if (!confirm('¿Eliminar este inversor y todas sus peticiones?')) return;
-    await inversoresApi.delete(id);
-    load();
+  const handleDelete = (id) => {
+    setConfirm({
+      title: 'Eliminar inversor',
+      message: '¿Seguro que quieres eliminar este inversor y todas sus peticiones? Esta acción no se puede deshacer.',
+      onConfirm: async () => {
+        await inversoresApi.delete(id);
+        setConfirm(null);
+        load();
+        toast.success('Inversor eliminado');
+      },
+    });
   };
 
   const set = (k) => (e) => setForm(f => ({ ...f, [k]: e.target.value }));
@@ -113,7 +126,39 @@ export default function Inversores() {
           </select>
         </div>
 
-        <div className="overflow-x-auto">
+        {/* Mobile card view */}
+        <div className="md:hidden space-y-3 p-4">
+          {loading ? (
+            <LoadingSpinner />
+          ) : filtered.length === 0 ? (
+            <p className="text-center py-10 text-gray-400">No hay inversores</p>
+          ) : filtered.map(inv => (
+            <div key={inv.id} className="border border-gray-200 rounded-lg p-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <div>
+                  <Link to={`/inversores/${inv.id}`} className="text-sm font-medium text-blue-600 hover:underline">
+                    {fullName(inv)}
+                  </Link>
+                  {inv.empresa && <div className="text-xs text-gray-400">{inv.empresa}</div>}
+                </div>
+                <PipelineTag value={inv.pipeline} />
+              </div>
+              <div className="text-sm text-gray-600 space-y-0.5">
+                {inv.email && <div>{inv.email}</div>}
+                {inv.telefono && <div>{inv.telefono}</div>}
+                <div className="text-xs text-gray-400">Peticiones: {inv.peticiones?.length ?? 0}</div>
+              </div>
+              <div className="flex gap-3 pt-1">
+                <Link to={`/inversores/${inv.id}`} className="text-sm text-blue-600 hover:underline">Ver ficha</Link>
+                <button onClick={() => openEdit(inv)} className="text-sm text-gray-400 hover:text-gray-700">Editar</button>
+                <button onClick={() => handleDelete(inv.id)} className="text-sm text-red-400 hover:text-red-600">Eliminar</button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Desktop table */}
+        <div className="hidden md:block overflow-x-auto">
         <table className="w-full text-sm min-w-[720px]">
           <thead>
             <tr className="border-b bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
@@ -128,7 +173,7 @@ export default function Inversores() {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={7} className="text-center py-10 text-gray-400">Cargando...</td></tr>
+              <tr><td colSpan={7}><LoadingSpinner /></td></tr>
             ) : filtered.length === 0 ? (
               <tr><td colSpan={7} className="text-center py-10 text-gray-400">No hay inversores</td></tr>
             ) : filtered.map(inv => (
@@ -223,6 +268,14 @@ export default function Inversores() {
           </div>
         </form>
       </Modal>
+
+      <ConfirmDialog
+        open={!!confirm}
+        title={confirm?.title}
+        message={confirm?.message}
+        onConfirm={confirm?.onConfirm}
+        onCancel={() => setConfirm(null)}
+      />
     </div>
   );
 }
