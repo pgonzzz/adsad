@@ -73,6 +73,10 @@ export default function GeneratePropertyModal({ isOpen, onClose, onCreated }) {
 
       const propiedad = await propiedadesApi.generate({
         reference_image_data: referenceDataUrl,
+      }).catch(err => {
+        // Extraer el mensaje real del backend si existe
+        const msg = err.response?.data?.error || err.message;
+        throw new Error(msg);
       });
 
       clearInterval(progressInterval);

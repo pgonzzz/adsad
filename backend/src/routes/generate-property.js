@@ -23,7 +23,10 @@ async function openaiChat(messages, json = false) {
     }),
   });
   const data = await res.json();
-  if (data.error) throw new Error(data.error.message);
+  if (data.error) {
+    console.error('[OpenAI Chat] Error:', JSON.stringify(data.error));
+    throw new Error(data.error.message || JSON.stringify(data.error));
+  }
   return data.choices[0].message.content;
 }
 
@@ -43,7 +46,10 @@ async function dalleGenerate(prompt) {
     }),
   });
   const data = await res.json();
-  if (data.error) throw new Error(data.error.message);
+  if (data.error) {
+    console.error('[DALL-E] Error:', JSON.stringify(data.error));
+    throw new Error(data.error.message || JSON.stringify(data.error));
+  }
   return data.data[0].url;
 }
 

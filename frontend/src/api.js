@@ -47,7 +47,7 @@ export const propiedadesApi = {
   create: (data) => post('/propiedades', data),
   update: (id, data) => put(`/propiedades/${id}`, data),
   delete: (id) => del(`/propiedades/${id}`),
-  generate: (data) => post('/propiedades/generate', data),
+  generate: (data) => api.post('/propiedades/generate', data, { timeout: 120000 }).then(r => r.data),
 };
 
 export const matchesApi = {
