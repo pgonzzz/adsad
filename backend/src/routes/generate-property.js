@@ -83,30 +83,45 @@ async function generateRoomImage(referenceImageData, roomPrompt) {
     throw new Error(data.error.message || JSON.stringify(data.error));
   }
 
-  // Buscar la imagen generada en el output
-  const imageOutput = (data.output || []).find(o => o.type === 'image_generation_call');
-  if (imageOutput?.result) {
-    return { type: 'base64', data: imageOutput.result };
+  // Log completo para debug (solo keys y types, no el base64 entero)
+  const outputSummary = (data.output || []).map(o => ({
+    type: o.type,
+    hasResult: !!o.result,
+    hasContent: !!o.content,
+    contentTypes: Array.isArray(o.content) ? o.content.map(c => c.type) : undefined,
+  }));
+  console.log('[GPT-4o Image] Output structure:', JSON.stringify(outputSummary));
+
+  // Formato 1: image_generation_call con result (base64 directo)
+  const imgCall = (data.output || []).find(o => o.type === 'image_generation_call');
+  if (imgCall?.result) {
+    return { type: 'base64', data: imgCall.result };
   }
 
-  // Formato alternativo
+  // Formato 2: message con content array que tiene output_image
   for (const item of (data.output || [])) {
-    if (item.content) {
-      for (const c of (Array.isArray(item.content) ? item.content : [])) {
-        if (c.type === 'output_image' && c.image_url) {
-          // Puede ser base64 data URL o URL
-          if (c.image_url.startsWith('data:')) {
-            const b64 = c.image_url.split(',')[1];
-            return { type: 'base64', data: b64 };
-          }
-          return { type: 'url', data: c.image_url };
+    const contents = Array.isArray(item.content) ? item.content : [];
+    for (const c of contents) {
+      if (c.type === 'output_image' && c.image_url) {
+        if (c.image_url.startsWith('data:')) {
+          return { type: 'base64', data: c.image_url.split(',')[1] };
         }
+        return { type: 'url', data: c.image_url };
+      }
+      // Formato 3: image con base64
+      if (c.type === 'image' && c.image_url) {
+        if (c.image_url.startsWith('data:')) {
+          return { type: 'base64', data: c.image_url.split(',')[1] };
+        }
+        return { type: 'url', data: c.image_url };
       }
     }
   }
 
-  console.error('[GPT-4o Image] Respuesta sin imagen:', JSON.stringify(data).slice(0, 500));
-  throw new Error('No se generó imagen en la respuesta');
+  // Si nada funcionó, loguear la respuesta completa (truncada)
+  const fullResp = JSON.stringify(data);
+  console.error('[GPT-4o Image] No se encontró imagen. Respuesta:', fullResp.slice(0, 2000));
+  throw new Error('No se generó imagen. Revisa los logs del backend para más detalle.');
 }
 
 /** Sube una imagen (base64 o URL) a Supabase storage */
@@ -224,6 +239,12 @@ router.post('/', audit('propiedades', 'create'), async (req, res) => {
 
     const validPhotos = photoUrls.filter(Boolean);
     console.log(`[Generate] ${validPhotos.length}/${ROOMS.length} fotos generadas`);
+
+    if (validPhotos.length === 0) {
+      // Si ninguna foto se generó, hay un problema sistémico — informar al usuario
+      const firstError = photoUrls.find(r => r === null);
+      throw new Error('No se pudo generar ninguna foto. Revisa los logs de Railway para ver el error de la API de OpenAI.');
+    }
 
     // ── Paso 4: Esperar datos y crear la propiedad ──
     const propData = await dataPromise;
