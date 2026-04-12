@@ -13,6 +13,7 @@
  */
 
 import supabase from './db/supabase.js';
+import { processScheduledPosts } from './routes/telegram.js';
 
 const TICK_MS = parseInt(process.env.SCHEDULER_TICK_MS || '', 10) || 10 * 60 * 1000; // 10 min
 const FIRST_TICK_DELAY_MS = 30 * 1000; // 30s para no competir con el arranque
@@ -224,4 +225,11 @@ export function startScheduler() {
     tick();
     setInterval(tick, TICK_MS);
   }, FIRST_TICK_DELAY_MS);
+
+  // Posts programados de Telegram — revisión cada 60s
+  setInterval(() => {
+    processScheduledPosts().catch(err =>
+      console.warn('[Scheduler/Telegram] Error:', err.message)
+    );
+  }, 60 * 1000);
 }

@@ -3,12 +3,13 @@ import { useParams, Link } from 'react-router-dom';
 import {
   ArrowLeft, ImagePlus, X, ExternalLink, Phone, Mail, Building2,
   FileText, Paperclip, Loader2, Download, Pencil, Check,
-  Ruler, BedDouble, Bath, MapPin, Printer
+  Ruler, BedDouble, Bath, MapPin, Printer, Send, CheckCircle2
 } from 'lucide-react';
 import { generatePropiedadPdf } from '../components/PropiedadPdf';
+import TelegramPostModal from '../components/TelegramPostModal';
 import { useToast } from '../components/Toast';
 import LoadingSpinner from '../components/LoadingSpinner';
-import { propiedadesApi, proveedoresApi } from '../api';
+import { propiedadesApi, proveedoresApi, telegramApi } from '../api';
 import Badge from '../components/Badge';
 import Modal from '../components/Modal';
 import TagsInput, { TagsDisplay } from '../components/TagsInput';
@@ -73,6 +74,10 @@ export default function PropiedadDetalle() {
   const [editForm, setEditForm] = useState(null);
   const [savingEdit, setSavingEdit] = useState(false);
 
+  // Telegram
+  const [telegramModal, setTelegramModal] = useState(false);
+  const [telegramPublished, setTelegramPublished] = useState(false);
+
   const load = () => {
     setLoading(true);
     propiedadesApi.getById(id).then(p => {
@@ -81,7 +86,12 @@ export default function PropiedadDetalle() {
     }).finally(() => setLoading(false));
   };
 
+  const loadTelegramStatus = () => {
+    telegramApi.getPublished(id).then(r => setTelegramPublished(r.published)).catch(() => {});
+  };
+
   useEffect(load, [id]);
+  useEffect(loadTelegramStatus, [id]);
   useEffect(() => { proveedoresApi.getAll().then(setProveedores); }, []);
 
   const askConfirm = (title, message, onConfirm) => {
@@ -226,7 +236,19 @@ export default function PropiedadDetalle() {
               )}
             </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-2 shrink-0 flex-wrap">
+            <button
+              onClick={() => setTelegramModal(true)}
+              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg ${
+                telegramPublished
+                  ? 'bg-green-50 border border-green-300 text-green-700'
+                  : 'border border-blue-300 text-blue-600 hover:bg-blue-50'
+              }`}
+              title={telegramPublished ? 'Ya publicado en Telegram — clic para republicar' : 'Publicar en grupo de Telegram'}
+            >
+              {telegramPublished ? <CheckCircle2 size={12} /> : <Send size={12} />}
+              {telegramPublished ? 'Telegram' : 'Telegram'}
+            </button>
             <button
               onClick={() => generatePropiedadPdf(propiedad)}
               className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 text-gray-600 hover:bg-gray-50 text-xs font-medium rounded-lg"
@@ -657,6 +679,14 @@ export default function PropiedadDetalle() {
           </form>
         )}
       </Modal>
+
+      {/* ── Modal Telegram ── */}
+      <TelegramPostModal
+        isOpen={telegramModal}
+        onClose={() => setTelegramModal(false)}
+        propiedad={propiedad}
+        onPublished={loadTelegramStatus}
+      />
     </div>
   );
 }

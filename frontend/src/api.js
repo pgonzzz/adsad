@@ -71,6 +71,16 @@ export const activityLogApi = {
   getAll: (params) => get('/activity-log', params),
 };
 
+export const telegramApi = {
+  getConfig: () => get('/telegram/config'),
+  getPosts: (params) => get('/telegram/posts', params),
+  createPost: (data) => post('/telegram/posts', data),
+  publishPost: (id) => post(`/telegram/posts/${id}/publish`, {}),
+  updatePost: (id, data) => put(`/telegram/posts/${id}`, data),
+  deletePost: (id) => del(`/telegram/posts/${id}`),
+  getPublished: (propiedadId) => get(`/telegram/propiedad/${propiedadId}/published`),
+};
+
 export const captacionApi = {
   getCampanas: () => get('/captacion/campanas'),
   createCampana: (data) => post('/captacion/campanas', data),
