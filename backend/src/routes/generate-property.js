@@ -30,8 +30,39 @@ async function openaiChat(messages, json = false) {
   return data.choices[0].message.content;
 }
 
-/** Genera una imagen con gpt-image-1 */
-async function generateImage(prompt) {
+/**
+ * Genera una imagen con gpt-image-1.
+ * Si hay imagen de referencia, usa /v1/images/edits (el modelo VE la imagen).
+ * Si no hay referencia, usa /v1/images/generations (solo texto).
+ */
+async function generateImage(prompt, referenceBuffer) {
+  if (referenceBuffer) {
+    // El modelo VE la imagen de referencia directamente
+    const formData = new FormData();
+    formData.append('model', 'gpt-image-1');
+    formData.append('image', new Blob([referenceBuffer], { type: 'image/png' }), 'reference.png');
+    formData.append('prompt', prompt);
+    formData.append('n', '1');
+    formData.append('size', '1024x1024');
+    formData.append('quality', 'medium');
+
+    const res = await fetch('https://api.openai.com/v1/images/edits', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${OPENAI_KEY()}` },
+      body: formData,
+    });
+    const data = await res.json();
+    if (data.error) {
+      console.error('[gpt-image-1 edits] Error:', JSON.stringify(data.error));
+      throw new Error(data.error.message || JSON.stringify(data.error));
+    }
+    if (data.data[0].b64_json) {
+      return { type: 'base64', data: data.data[0].b64_json };
+    }
+    return { type: 'url', data: data.data[0].url };
+  }
+
+  // Sin referencia: solo texto
   const res = await fetch('https://api.openai.com/v1/images/generations', {
     method: 'POST',
     headers: {
@@ -119,8 +150,8 @@ const ROOMS = [
   { key: 'bano2', label: 'baño 2', prompt: 'un segundo baño más pequeño con ducha, lavabo e inodoro' },
 ];
 
-function buildRoomPrompt(room, styleDescription) {
-  return `Crea una foto realista, sin que parezca hecha con una cámara profesional ni con luces profesionales, de ${room.prompt} de un piso con estas características: ${styleDescription}. Foto hecha con un móvil normal, sin editar.`;
+function buildRoomPrompt(room) {
+  return `Crea una foto realista, sin que parezca que se haya hecho con una cámara profesional, ni con luces profesionales, de ${room.prompt} de este piso.`;
 }
 
 // ─── Endpoint principal ───────────────────────────────────────────────────────
@@ -136,26 +167,17 @@ router.post('/', audit('propiedades', 'create'), async (req, res) => {
   try {
     console.log('[Generate] Iniciando generación de propiedad ficticia...');
 
-    // ── Paso 1: Analizar la foto de referencia con GPT-4o vision ──
-    let styleDescription = '';
+    // ── Paso 1: Preparar imagen de referencia como buffer ──
+    let referenceBuffer = null;
     if (referenceImage) {
-      console.log('[Generate] Analizando foto de referencia...');
-      styleDescription = await openaiChat([
-        {
-          role: 'system',
-          content: 'Describe en español, en 3-4 frases, el estilo visual de este piso: tipo de suelo y color, color de paredes, estado general (nuevo, reformado, antiguo, deteriorado), tipo de puertas, ventanas, iluminación, y calidad general. Sé muy específico para que alguien pueda recrear habitaciones con exactamente el mismo nivel de calidad y materiales.',
-        },
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: 'Describe el estilo de este piso:' },
-            { type: 'image_url', image_url: { url: referenceImage } },
-          ],
-        },
-      ]);
-      console.log('[Generate] Estilo detectado:', styleDescription.slice(0, 150));
-    } else {
-      styleDescription = 'Piso español típico con suelo de baldosa cerámica, paredes pintadas de blanco, persianas de aluminio, puertas de madera. Construido en los años 80-90, mantenimiento normal.';
+      if (referenceImage.startsWith('data:')) {
+        const b64 = referenceImage.split(',')[1];
+        referenceBuffer = Buffer.from(b64, 'base64');
+      } else {
+        const imgRes = await fetch(referenceImage);
+        referenceBuffer = Buffer.from(await imgRes.arrayBuffer());
+      }
+      console.log(`[Generate] Referencia cargada: ${referenceBuffer.length} bytes`);
     }
 
     // ── Paso 2: Generar datos ficticios realistas (en paralelo con fotos) ──
@@ -167,18 +189,18 @@ router.post('/', audit('propiedades', 'create'), async (req, res) => {
       true
     ).then((raw) => JSON.parse(raw));
 
-    // ── Paso 3: Generar 7 fotos con gpt-image-1 ──
+    // ── Paso 3: Generar 7 fotos con gpt-image-1 (ve la referencia directamente) ──
     console.log('[Generate] Generando 7 fotos con gpt-image-1...');
     const photoUrls = [];
 
-    for (let i = 0; i < ROOMS.length; i += 3) {
-      const batch = ROOMS.slice(i, i + 3);
+    for (let i = 0; i < ROOMS.length; i += 2) {
+      const batch = ROOMS.slice(i, i + 2);
       const results = await Promise.all(
         batch.map(async (room) => {
           try {
             console.log(`[Generate]   Generando ${room.label}...`);
-            const prompt = buildRoomPrompt(room, styleDescription);
-            const imageResult = await generateImage(prompt);
+            const prompt = buildRoomPrompt(room);
+            const imageResult = await generateImage(prompt, referenceBuffer);
             const storageUrl = await downloadAndUpload(imageResult, room.key);
             console.log(`[Generate]   ✓ ${room.label} subida`);
             return storageUrl;
