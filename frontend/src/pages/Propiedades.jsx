@@ -7,7 +7,8 @@ import ConfirmDialog from '../components/ConfirmDialog';
 import { useToast } from '../components/Toast';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { supabase } from '../lib/supabase';
-import { ImagePlus, X, Loader2, SlidersHorizontal, ChevronDown, Paperclip, FileText } from 'lucide-react';
+import GeneratePropertyModal from '../components/GeneratePropertyModal';
+import { ImagePlus, X, Loader2, SlidersHorizontal, ChevronDown, Paperclip, FileText, Sparkles } from 'lucide-react';
 import Combobox, { ComboboxMunicipios } from '../components/Combobox';
 import { PROVINCIAS } from '../data/municipios';
 import { TagsDisplay } from '../components/TagsInput';
@@ -71,6 +72,7 @@ export default function Propiedades() {
   const [uploadingAdj, setUploadingAdj] = useState(false);
   const [lightbox, setLightbox] = useState(null);
   const [showFilters, setShowFilters] = useState(false);
+  const [generateModal, setGenerateModal] = useState(false);
   const [confirm, setConfirm] = useState(null);
   const fileRef = useRef();
   const adjRef = useRef();
@@ -229,9 +231,17 @@ export default function Propiedades() {
     <div>
       <div className="flex items-center justify-between mb-4 sm:mb-6 gap-3 flex-wrap">
         <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Propiedades</h1>
-        <button onClick={openCreate} className="px-3 sm:px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 whitespace-nowrap">
-          + Nueva propiedad
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setGenerateModal(true)}
+            className="flex items-center gap-1.5 px-3 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 whitespace-nowrap"
+          >
+            <Sparkles size={14} /> Generar con IA
+          </button>
+          <button onClick={openCreate} className="px-3 sm:px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 whitespace-nowrap">
+            + Nueva propiedad
+          </button>
+        </div>
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
@@ -528,6 +538,15 @@ export default function Propiedades() {
           </div>
         </form>
       </Modal>
+
+      <GeneratePropertyModal
+        isOpen={generateModal}
+        onClose={() => setGenerateModal(false)}
+        onCreated={(p) => {
+          loadPropiedades();
+          navigate(`/propiedades/${p.id}`);
+        }}
+      />
     </div>
   );
 }

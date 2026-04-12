@@ -13,6 +13,7 @@ import dashboardRouter from './routes/dashboard.js';
 import captacionRouter from './routes/captacion.js';
 import activityLogRouter from './routes/activity-log.js';
 import telegramRouter from './routes/telegram.js';
+import generatePropertyRouter from './routes/generate-property.js';
 import { startScheduler } from './scheduler.js';
 
 dotenv.config();
@@ -48,6 +49,7 @@ app.use('/api/operaciones', authMiddleware, operacionesRouter);
 app.use('/api/dashboard', authMiddleware, dashboardRouter);
 app.use('/api/activity-log', authMiddleware, activityLogRouter);
 app.use('/api/telegram', authMiddleware, telegramRouter);
+app.use('/api/propiedades/generate', authMiddleware, generatePropertyRouter);
 // Captación: las rutas del agente no llevan authMiddleware (usan AGENT_KEY propia)
 app.use('/api/captacion', captacionRouter);
 
