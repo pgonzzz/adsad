@@ -44,12 +44,22 @@ async function sendMediaGroup(chatId, photoUrls, caption) {
   return tgApi('sendMediaGroup', { chat_id: chatId, media });
 }
 
-/** Publica un post: fotos + texto. Si hay fotos usa media group, si no texto solo. */
+/** Publica un post: fotos + texto.
+ *  - Si hay fotos y el texto cabe en 1024 chars → media group con caption
+ *  - Si hay fotos pero texto > 1024 → fotos sin caption + texto aparte
+ *  - Sin fotos → solo texto (hasta 4096 chars)
+ */
 async function publishPost(chatId, texto, fotos) {
   if (fotos && fotos.length > 0) {
-    const result = await sendMediaGroup(chatId, fotos, texto);
-    // media group devuelve array de mensajes, retornamos el ID del primero
-    return Array.isArray(result) ? String(result[0].message_id) : String(result.message_id);
+    if (texto.length <= 1024) {
+      // Caption cabe en el media group
+      const result = await sendMediaGroup(chatId, fotos, texto);
+      return Array.isArray(result) ? String(result[0].message_id) : String(result.message_id);
+    }
+    // Texto demasiado largo para caption → enviar fotos + texto por separado
+    await sendMediaGroup(chatId, fotos, '');
+    const result = await sendMessage(chatId, texto);
+    return String(result.message_id);
   }
   const result = await sendMessage(chatId, texto);
   return String(result.message_id);
