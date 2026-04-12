@@ -16,6 +16,16 @@ const ESTADOS = ['disponible', 'reservada', 'en_negociacion', 'vendida'];
  *   proveedores  : array de proveedores para el <select>
  *   existingTags : array de strings para sugerencias del TagsInput
  */
+/** Auto-calcula rentabilidad bruta cuando hay precio + estimación alquiler */
+function autoCalcRent(form) {
+  const precio = Number(form.precio);
+  const alquiler = Number(form.estimacion_alquiler);
+  if (precio > 0 && alquiler > 0) {
+    form.rentabilidad_bruta = ((alquiler * 12) / precio * 100).toFixed(1);
+  }
+  return form;
+}
+
 export default function PropiedadFormFields({
   form,
   setForm,
@@ -94,18 +104,48 @@ export default function PropiedadFormFields({
         </p>
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 gap-3">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Precio (€)</label>
           <input
             type="number"
             value={form.precio}
-            onChange={set('precio')}
+            onChange={(e) => {
+              const precio = e.target.value;
+              setForm((f) => {
+                const updated = { ...f, precio };
+                return autoCalcRent(updated);
+              });
+            }}
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Rent. bruta (%)</label>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Estimación alquiler (€/mes)</label>
+          <input
+            type="number"
+            value={form.estimacion_alquiler || ''}
+            onChange={(e) => {
+              const estimacion_alquiler = e.target.value;
+              setForm((f) => {
+                const updated = { ...f, estimacion_alquiler };
+                return autoCalcRent(updated);
+              });
+            }}
+            placeholder="Ej: 800"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Rent. bruta (%)
+            {form.precio && form.estimacion_alquiler && (
+              <span className="text-xs text-blue-500 font-normal ml-1">auto-calculada</span>
+            )}
+          </label>
           <input
             type="number"
             step="0.1"
@@ -249,6 +289,7 @@ export function propiedadFormToPayload(form) {
     poblacion: form.poblacion || null,
     direccion: form.direccion || null,
     precio: form.precio ? Number(form.precio) : null,
+    estimacion_alquiler: form.estimacion_alquiler ? Number(form.estimacion_alquiler) : null,
     rentabilidad_bruta: form.rentabilidad_bruta ? Number(form.rentabilidad_bruta) : null,
     rentabilidad_neta: form.rentabilidad_neta ? Number(form.rentabilidad_neta) : null,
     m2: form.m2 ? Number(form.m2) : null,
@@ -276,6 +317,7 @@ export function propiedadToForm(p) {
     poblacion: p.poblacion || '',
     direccion: p.direccion || '',
     precio: p.precio ?? '',
+    estimacion_alquiler: p.estimacion_alquiler ?? '',
     rentabilidad_bruta: p.rentabilidad_bruta ?? '',
     rentabilidad_neta: p.rentabilidad_neta ?? '',
     m2: p.m2 ?? '',

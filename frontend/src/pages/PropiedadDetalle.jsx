@@ -293,6 +293,12 @@ export default function PropiedadDetalle() {
                   <p className="text-xl font-bold text-indigo-600">{propiedad.rentabilidad_neta}%</p>
                 </div>
               )}
+              {propiedad.estimacion_alquiler && (
+                <div>
+                  <p className="text-xs text-gray-400 mb-0.5">Est. alquiler</p>
+                  <p className="text-xl font-bold text-green-600">{propiedad.estimacion_alquiler} €/mes</p>
+                </div>
+              )}
             </div>
 
             {/* Características breves (m² / habs / baños / planta / año) */}

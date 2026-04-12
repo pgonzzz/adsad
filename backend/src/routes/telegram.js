@@ -126,17 +126,17 @@ Ingresos: 1.200 €
 
 ⏳ Este tipo de activos con cashflow alto vuelan
 
-REGLAS:
+REGLAS ESTRICTAS:
 1. Usa TODOS los datos disponibles de la propiedad para rellenar la plantilla.
-2. Si hay un precio de compra y un estimado de alquiler (en notas, descripción o cualquier campo), CALCULA la rentabilidad bruta y neta.
-3. Si en las notas/descripción se menciona una reforma (coste de reforma), INCLÚYELO en la sección de precio y tenlo en cuenta para calcular la rentabilidad real (inversión total = precio + reforma).
-4. Si hay IBI, comunidad u otros gastos mencionados en notas/descripción, INCLÚYELOS en la sección de costes fijos.
-5. SIEMPRE incluye un escenario hipotecario con: financiación 80%, interés 3.5%, plazo 30 años. Calcula la cuota mensual.
-6. SIEMPRE calcula el cashflow mensual: ingresos - hipoteca - gastos.
-7. Si no hay datos de alquiler, ESTIMA un alquiler razonable para la zona y m² y márcalo como "estimado".
-8. Omite secciones que no tengan datos (ej. si no hay características, no pongas la sección).
-9. NO inventes datos que no estén en la ficha ni sean calculables.
-10. Los números van SIEMPRE con formato español: punto para miles, coma para decimales (125.000 €, 9,5%).
+2. El campo "estimacion_alquiler" es el alquiler mensual estimado. Úsalo para calcular rentabilidad e ingresos.
+3. Si hay precio + estimacion_alquiler, CALCULA: rentabilidad bruta = (alquiler*12/precio)*100. Muéstrala.
+4. Si en las notas/descripción se menciona una reforma (coste de reforma), INCLÚYELO en la inversión total y tenlo en cuenta para la rentabilidad.
+5. Si hay IBI, comunidad u otros gastos mencionados en notas/descripción, INCLÚYELOS en costes fijos.
+6. Si hay precio y alquiler, incluye escenario hipotecario: financiación 80%, interés 3,5%, plazo 30 años. Calcula cuota y cashflow.
+7. OMITE secciones enteras si no hay datos para ellas. NO rellenes con inventos.
+8. PROHIBIDO INVENTAR DATOS. Si un dato no está en la ficha de la propiedad, NO lo pongas. Ni precios, ni alquileres, ni IBI, ni comunidad, ni nada. Solo usa lo que está en los campos de la propiedad que te paso.
+9. Si no hay estimacion_alquiler ni alquiler mencionado en notas, NO pongas sección de ingresos, ni rentabilidad, ni cashflow, ni escenario hipotecario.
+10. Los números van con formato español: punto para miles, coma para decimales (125.000 €, 9,5%).
 11. Devuelve SOLO el texto de la publicación, sin explicaciones ni markdown.`;
 
 // POST /telegram/generate-text — generar texto inteligente para Telegram
