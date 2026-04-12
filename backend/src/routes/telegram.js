@@ -44,25 +44,14 @@ async function sendMediaGroup(chatId, photoUrls, caption) {
   return tgApi('sendMediaGroup', { chat_id: chatId, media });
 }
 
-/** Publica un post: fotos + texto.
- *  - Si hay fotos y el texto cabe en 1024 chars → media group con caption
- *  - Si hay fotos pero texto > 1024 → fotos sin caption + texto aparte
- *  - Sin fotos → solo texto (hasta 4096 chars)
- */
+/** Publica un post: primero texto, luego fotos. */
 async function publishPost(chatId, texto, fotos) {
-  if (fotos && fotos.length > 0) {
-    if (texto.length <= 1024) {
-      // Caption cabe en el media group
-      const result = await sendMediaGroup(chatId, fotos, texto);
-      return Array.isArray(result) ? String(result[0].message_id) : String(result.message_id);
-    }
-    // Texto demasiado largo para caption → enviar fotos + texto por separado
-    await sendMediaGroup(chatId, fotos, '');
-    const result = await sendMessage(chatId, texto);
-    return String(result.message_id);
-  }
   const result = await sendMessage(chatId, texto);
-  return String(result.message_id);
+  const msgId = String(result.message_id);
+  if (fotos && fotos.length > 0) {
+    await sendMediaGroup(chatId, fotos, '');
+  }
+  return msgId;
 }
 
 // ─── Generación de texto con IA ───────────────────────────────────────────────
@@ -147,7 +136,8 @@ REGLAS ESTRICTAS:
 8. PROHIBIDO INVENTAR DATOS. Si un dato no está en la ficha de la propiedad, NO lo pongas. Ni precios, ni alquileres, ni IBI, ni comunidad, ni nada. Solo usa lo que está en los campos de la propiedad que te paso.
 9. Si no hay estimacion_alquiler ni alquiler mencionado en notas, NO pongas sección de ingresos, ni rentabilidad, ni cashflow, ni escenario hipotecario. NADA de eso.
 10. Los números van con formato español: punto para miles, coma para decimales (125.000 €, 9,5%).
-11. Devuelve SOLO el texto de la publicación, sin explicaciones ni markdown.`;
+11. Devuelve SOLO el texto de la publicación, sin explicaciones ni markdown.
+12. IMPORTANTE: el texto DEBE tener MENOS de 4000 caracteres en total. Sé conciso. Si el mensaje queda largo, reduce secciones o elimina las menos importantes. NUNCA superes los 4000 caracteres.`;
 
 // POST /telegram/generate-text — generar texto inteligente para Telegram
 router.post('/generate-text', async (req, res) => {
