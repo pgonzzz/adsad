@@ -7,8 +7,13 @@ import {
 } from 'lucide-react';
 import { propiedadesApi, proveedoresApi } from '../api';
 import Badge from '../components/Badge';
+import Modal from '../components/Modal';
 import TagsInput, { TagsDisplay } from '../components/TagsInput';
 import NotesTimeline from '../components/NotesTimeline';
+import PropiedadFormFields, {
+  propiedadFormToPayload,
+  propiedadToForm,
+} from '../components/PropiedadFormFields';
 import { supabase } from '../lib/supabase';
 
 const PIPELINE = [
@@ -83,6 +88,11 @@ export default function PropiedadDetalle() {
   // Edición in-line de etiquetas
   const [editingTags, setEditingTags] = useState(false);
   const [draftTags, setDraftTags] = useState([]);
+
+  // Modal de edición completa de la propiedad
+  const [editModal, setEditModal] = useState(false);
+  const [editForm, setEditForm] = useState(null);
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const load = () => {
     setLoading(true);
@@ -179,6 +189,26 @@ export default function PropiedadDetalle() {
     load();
   };
 
+  // ── Edición completa ───────────────────────────────────────────────────────
+  const openEditModal = () => {
+    setEditForm({ ...propiedadToForm(propiedad), notas: propiedad.notas || '' });
+    setEditModal(true);
+  };
+  const handleSaveEdit = async (e) => {
+    e.preventDefault();
+    setSavingEdit(true);
+    try {
+      await propiedadesApi.update(id, {
+        ...propiedadFormToPayload(editForm),
+        notas: editForm.notas || null,
+      });
+      setEditModal(false);
+      load();
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
   if (loading) return <p className="text-gray-400 text-sm">Cargando...</p>;
   if (!propiedad) return <p className="text-red-500 text-sm">Propiedad no encontrada</p>;
 
@@ -215,6 +245,17 @@ export default function PropiedadDetalle() {
                 <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-xs font-medium">Acepta financiación</span>
               )}
             </div>
+          </div>
+          <button
+            onClick={openEditModal}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded-lg shadow-sm"
+          >
+            <Pencil size={12} /> Editar propiedad
+          </button>
+        </div>
+
+        <div className="flex items-start gap-4 flex-wrap mt-2">
+          <div className="flex-1">
             {(ubicacion || propiedad.direccion) && (
               <p className="text-gray-500 text-sm mb-3 flex items-center gap-1">
                 <MapPin size={13} className="text-gray-400" />
@@ -578,6 +619,55 @@ export default function PropiedadDetalle() {
         onConfirm={confirm?.onConfirm}
         onCancel={() => setConfirm(null)}
       />
+
+      {/* ── Modal de edición completa ── */}
+      <Modal
+        isOpen={editModal}
+        onClose={() => setEditModal(false)}
+        title="Editar propiedad"
+        size="lg"
+      >
+        {editForm && (
+          <form onSubmit={handleSaveEdit} className="space-y-4">
+            <PropiedadFormFields
+              form={editForm}
+              setForm={setEditForm}
+              proveedores={proveedores}
+              existingTags={propiedad?.tags || []}
+            />
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Notas (texto libre)</label>
+              <textarea
+                rows={2}
+                value={editForm.notas || ''}
+                onChange={(e) => setEditForm((f) => ({ ...f, notas: e.target.value }))}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <p className="text-xs text-gray-400 mt-1">
+                Para notas con fecha y autor, usa el timeline de "Notas" más abajo en la ficha.
+              </p>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                type="button"
+                onClick={() => setEditModal(false)}
+                className="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="submit"
+                disabled={savingEdit}
+                className="px-4 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              >
+                {savingEdit ? 'Guardando...' : 'Guardar cambios'}
+              </button>
+            </div>
+          </form>
+        )}
+      </Modal>
     </div>
   );
 }
