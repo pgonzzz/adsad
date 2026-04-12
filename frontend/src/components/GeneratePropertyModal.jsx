@@ -2,7 +2,6 @@ import { useState, useRef } from 'react';
 import { Sparkles, Upload, Loader2, ImagePlus, X } from 'lucide-react';
 import Modal from './Modal';
 import { propiedadesApi } from '../api';
-import { supabase } from '../lib/supabase';
 import { useToast } from './Toast';
 
 const STEPS = [
@@ -54,30 +53,26 @@ export default function GeneratePropertyModal({ isOpen, onClose, onCreated }) {
     setStep(0);
 
     try {
-      let referenceUrl = null;
-
-      // Paso 1: subir foto de referencia a Supabase storage
+      // Convertir foto a base64 data URL (se envía directo al backend,
+      // sin pasar por Supabase storage — evita problemas de RLS)
+      let referenceDataUrl = null;
       if (file) {
         setStep(0);
-        const ext = file.name.split('.').pop();
-        const path = `referencias/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-        const { error: uploadErr } = await supabase.storage
-          .from('propiedades')
-          .upload(path, file, { contentType: file.type });
-        if (uploadErr) throw new Error('Error subiendo foto: ' + uploadErr.message);
-        const { data: urlData } = supabase.storage.from('propiedades').getPublicUrl(path);
-        referenceUrl = urlData.publicUrl;
+        referenceDataUrl = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = (e) => resolve(e.target.result);
+          reader.readAsDataURL(file);
+        });
       }
 
-      // Pasos 2-5: el backend hace todo
+      // El backend hace todo: analizar, generar datos, generar fotos, crear propiedad
       setStep(1);
-      // Simulamos progreso visual mientras el backend trabaja
       const progressInterval = setInterval(() => {
         setStep((s) => Math.min(s + 1, STEPS.length - 1));
       }, 12000);
 
       const propiedad = await propiedadesApi.generate({
-        reference_image_url: referenceUrl,
+        reference_image_data: referenceDataUrl,
       });
 
       clearInterval(progressInterval);

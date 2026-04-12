@@ -123,7 +123,8 @@ CRITICAL REQUIREMENTS:
 // ─── Endpoint principal ───────────────────────────────────────────────────────
 
 router.post('/', audit('propiedades', 'create'), async (req, res) => {
-  const { reference_image_url } = req.body;
+  // Acepta base64 data URL o URL pública
+  const referenceImage = req.body.reference_image_data || req.body.reference_image_url;
 
   if (!OPENAI_KEY()) {
     return res.status(500).json({ error: 'OPENAI_API_KEY no configurada en el backend' });
@@ -134,7 +135,7 @@ router.post('/', audit('propiedades', 'create'), async (req, res) => {
 
     // ── Paso 1: Analizar la foto de referencia con GPT-4o vision ──
     let styleDescription = '';
-    if (reference_image_url) {
+    if (referenceImage) {
       console.log('[Generate] Analizando foto de referencia...');
       styleDescription = await openaiChat([
         {
@@ -145,7 +146,7 @@ router.post('/', audit('propiedades', 'create'), async (req, res) => {
           role: 'user',
           content: [
             { type: 'text', text: 'Describe the style of this apartment:' },
-            { type: 'image_url', image_url: { url: reference_image_url } },
+            { type: 'image_url', image_url: { url: referenceImage } },
           ],
         },
       ]);

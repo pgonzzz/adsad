@@ -34,7 +34,7 @@ app.use(cors({
   credentials: true,
 }));
 
-app.use(express.json());
+app.use(express.json({ limit: '15mb' }));
 
 // Health check (sin auth)
 app.get('/health', (_req, res) => res.json({ ok: true }));
