@@ -6,6 +6,7 @@ const router = express.Router();
 
 const BOT_TOKEN = () => process.env.TELEGRAM_BOT_TOKEN;
 const DEFAULT_CHAT_ID = () => process.env.TELEGRAM_CHAT_ID;
+const OPENAI_KEY = () => process.env.OPENAI_API_KEY;
 
 // ─── Helpers Telegram Bot API ─────────────────────────────────────────────────
 
@@ -53,6 +54,122 @@ async function publishPost(chatId, texto, fotos) {
   const result = await sendMessage(chatId, texto);
   return String(result.message_id);
 }
+
+// ─── Generación de texto con IA ───────────────────────────────────────────────
+
+const TELEGRAM_SYSTEM_PROMPT = `Eres un copywriter inmobiliario experto. Generas publicaciones para el canal de Telegram de Pisalia, una empresa de inversión inmobiliaria.
+
+FORMATO DE EJEMPLO (sigue esta estructura EXACTA con emojis):
+
+🔥 IDEA CON CASHFLOW POSITIVO | INVERSIÓN LLAVE EN MANO
+
+📍 Piso en Canovellas Centro
+💰 Ingresos activos desde el primer día
+
+━━━━━━━━━━━━━━━
+💸 Precio compra: 125.000 €
+📈 Ingresos actuales: 1.200 €/mes (14.400 €/año)
+🛠 Reforma: No necesaria
+
+👉 Rentabilidad bruta: 11,52%
+
+━━━━━━━━━━━━━━━
+🏠 Características del activo
+📏 99m²
+🛏 4 habitaciones
+🛁 1 baño
+
+━━━━━━━━━━━━━━━
+💸 Costes fijos
+🏛 IBI: 179 €/año (~15 €/mes)
+🏢 Comunidad: 35€/mes
+👉 Gasto total mensual: ~50 €
+
+━━━━━━━━━━━━━━━
+🏦 ESCENARIO HIPOTECARIO (realista)
+• Financiación: 80%
+• Aportación inicial: ~25.000 €
+• Tipo interés: 3,5%
+• Plazo: 30 años
+👉 Cuota estimada: ~390 €/mes
+
+━━━━━━━━━━━━━━━
+📊 CASHFLOW MENSUAL
+Ingresos: 1.200 €
+ • Hipoteca: 390 €
+ • Gastos: 50 €
+👉 Beneficio neto estimado: ~760 €/mes
+💥 +9.120 €/año antes de impuestos
+
+━━━━━━━━━━━━━━━
+🎯 Puntos fuertes del deal
+✔️ Alta demanda en alquiler
+✔️ Flujo de caja sólido
+✔️ Zona en expansión
+
+━━━━━━━━━━━━━━━
+🧠 Servicio opcional
+✔️ Gestión integral del alquiler
+✔️ Compra 100% a distancia
+✔️ Acompañamiento completo
+✔️ Nos podemos encargar de la financiación
+
+━━━━━━━━━━━━━━━
+⚠️ Condiciones de compra
+💼 Honorarios: 3.800€ + IVA
+📆 Escritura en 2–3 meses
+🔒 Reserva con contrato
+
+━━━━━━━━━━━━━━━
+📩 Solicita información
+✉️ Carles@pisalia.es
+
+⏳ Este tipo de activos con cashflow alto vuelan
+
+REGLAS:
+1. Usa TODOS los datos disponibles de la propiedad para rellenar la plantilla.
+2. Si hay un precio de compra y un estimado de alquiler (en notas, descripción o cualquier campo), CALCULA la rentabilidad bruta y neta.
+3. Si en las notas/descripción se menciona una reforma (coste de reforma), INCLÚYELO en la sección de precio y tenlo en cuenta para calcular la rentabilidad real (inversión total = precio + reforma).
+4. Si hay IBI, comunidad u otros gastos mencionados en notas/descripción, INCLÚYELOS en la sección de costes fijos.
+5. SIEMPRE incluye un escenario hipotecario con: financiación 80%, interés 3.5%, plazo 30 años. Calcula la cuota mensual.
+6. SIEMPRE calcula el cashflow mensual: ingresos - hipoteca - gastos.
+7. Si no hay datos de alquiler, ESTIMA un alquiler razonable para la zona y m² y márcalo como "estimado".
+8. Omite secciones que no tengan datos (ej. si no hay características, no pongas la sección).
+9. NO inventes datos que no estén en la ficha ni sean calculables.
+10. Los números van SIEMPRE con formato español: punto para miles, coma para decimales (125.000 €, 9,5%).
+11. Devuelve SOLO el texto de la publicación, sin explicaciones ni markdown.`;
+
+// POST /telegram/generate-text — generar texto inteligente para Telegram
+router.post('/generate-text', async (req, res) => {
+  const { propiedad } = req.body;
+  if (!propiedad) return res.status(400).json({ error: 'Falta propiedad' });
+  if (!OPENAI_KEY()) return res.status(500).json({ error: 'OPENAI_API_KEY no configurada' });
+
+  try {
+    const propJson = JSON.stringify(propiedad, null, 2);
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${OPENAI_KEY()}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o',
+        messages: [
+          { role: 'system', content: TELEGRAM_SYSTEM_PROMPT },
+          { role: 'user', content: `Genera la publicación de Telegram para esta propiedad:\n\n${propJson}` },
+        ],
+        max_tokens: 2000,
+      }),
+    });
+    const data = await response.json();
+    if (data.error) throw new Error(data.error.message);
+    res.json({ text: data.choices[0].message.content });
+  } catch (err) {
+    console.error('[Telegram/generate-text] Error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ─── CRUD + publicación ───────────────────────────────────────────────────────
 

@@ -38,26 +38,35 @@ async function dalleGenerate(prompt) {
       Authorization: `Bearer ${OPENAI_KEY()}`,
     },
     body: JSON.stringify({
-      model: 'dall-e-3',
+      model: 'gpt-image-1',
       prompt,
       n: 1,
       size: '1024x1024',
-      quality: 'standard',
+      quality: 'low',
     }),
   });
   const data = await res.json();
   if (data.error) {
-    console.error('[DALL-E] Error:', JSON.stringify(data.error));
+    console.error('[gpt-image-1] Error:', JSON.stringify(data.error));
     throw new Error(data.error.message || JSON.stringify(data.error));
   }
-  return data.data[0].url;
+  // gpt-image-1 devuelve base64 en vez de URL
+  if (data.data[0].b64_json) {
+    return { type: 'base64', data: data.data[0].b64_json };
+  }
+  return { type: 'url', data: data.data[0].url };
 }
 
-/** Descarga una imagen de URL y la sube a Supabase storage */
-async function downloadAndUpload(imageUrl, filename) {
-  const res = await fetch(imageUrl);
-  if (!res.ok) throw new Error(`Error descargando imagen: ${res.status}`);
-  const buffer = Buffer.from(await res.arrayBuffer());
+/** Sube una imagen (base64 o URL) a Supabase storage */
+async function downloadAndUpload(imageResult, filename) {
+  let buffer;
+  if (imageResult.type === 'base64') {
+    buffer = Buffer.from(imageResult.data, 'base64');
+  } else {
+    const res = await fetch(imageResult.data);
+    if (!res.ok) throw new Error(`Error descargando imagen: ${res.status}`);
+    buffer = Buffer.from(await res.arrayBuffer());
+  }
   const path = `fotos/${Date.now()}-${filename}.png`;
   const { error } = await supabase.storage
     .from('propiedades')
@@ -111,19 +120,24 @@ const ROOMS = [
 ];
 
 function buildImagePrompt(room, styleDescription) {
-  return `A photo taken with a smartphone camera of the ${room.prompt} in a modest Spanish apartment. ${styleDescription}
+  return `Realistic smartphone photo of the ${room.prompt} in a MODEST, CHEAP Spanish apartment.
 
-CRITICAL REQUIREMENTS:
-- Must look like a REAL photo from a phone camera posted on Idealista or Fotocasa
-- Natural indoor lighting with some shadows and slight warm tint
-- Slightly lived-in, not perfectly staged
-- Modest furniture, nothing luxurious or designer
-- Spanish style apartment (tile floors, white/beige walls, roller shutters on windows)
-- NOT professional real estate photography
-- NOT HDR, NOT wide angle lens, NOT perfect composition
+Style reference: ${styleDescription}
+
+MANDATORY — the photo MUST look like this:
+- A CHEAP apartment, NOT renovated, NOT modern, NOT luxury
+- Old ceramic tile floors (typical 80s/90s Spanish tiles), yellowish walls
+- Basic, old, mismatched furniture — IKEA-level or lower, some pieces worn out
+- Fluorescent or bare-bulb lighting, NOT warm designer lighting
+- Slightly dirty/dusty, things slightly out of place, lived-in mess
+- Old wooden doors, aluminium roller shutters, basic radiators
+- The kind of apartment you'd find on Idealista for 80.000€ in the outskirts
+- Photo taken quickly with a phone, slightly tilted, mediocre composition
+- Low-medium quality, slight blur, phone camera look
+- NO staging, NO decoration, NO design, NO flowers, NO art on walls
+- NO professional photography, NO HDR, NO perfect lighting
 - NO watermarks, NO text, NO people
-- Realistic, authentic, amateur look
-- Camera angle: standing in the doorway looking into the room`;
+- This is a WORKING CLASS apartment, not a showroom`;
 }
 
 // ─── Endpoint principal ───────────────────────────────────────────────────────
@@ -181,9 +195,8 @@ router.post('/', audit('propiedades', 'create'), async (req, res) => {
         batch.map(async (room) => {
           try {
             console.log(`[Generate]   Generando ${room.label}...`);
-            const dalleUrl = await dalleGenerate(buildImagePrompt(room, styleDescription));
-            // Descargar y subir a Supabase storage
-            const storageUrl = await downloadAndUpload(dalleUrl, room.key);
+            const imageResult = await dalleGenerate(buildImagePrompt(room, styleDescription));
+            const storageUrl = await downloadAndUpload(imageResult, room.key);
             console.log(`[Generate]   ✓ ${room.label} subida`);
             return storageUrl;
           } catch (err) {

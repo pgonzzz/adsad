@@ -104,7 +104,7 @@ export default function GeneratePropertyModal({ isOpen, onClose, onCreated }) {
       <div className="space-y-5">
         {/* Explicación */}
         <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700">
-          <strong>Fake it until you make it.</strong> Sube una foto de un piso real como referencia.
+          Sube una foto de un piso real como referencia.
           La IA generará 7 fotos (salón, cocina, 3 habs, 2 baños) y datos realistas para una zona
           periférica de una gran ciudad española. La propiedad se creará lista para publicar.
         </div>

@@ -102,17 +102,25 @@ export default function TelegramPostModal({ isOpen, onClose, propiedad, onPublis
   const [programTime, setProgramTime] = useState('');
   const [loading, setLoading] = useState(false);
   const [configOk, setConfigOk] = useState(null);
+  const [generatingText, setGeneratingText] = useState(false);
 
-  // Generar texto y seleccionar fotos al abrir
+  // Generar texto con IA y seleccionar fotos al abrir
   useEffect(() => {
     if (isOpen && propiedad) {
+      // Texto temporal mientras la IA genera
       setTexto(generateTelegramText(propiedad));
       setSelectedFotos((propiedad.fotos || []).slice(0, 10));
       setMode('ahora');
       setProgramDate('');
       setProgramTime('');
-      // Comprobar config
       telegramApi.getConfig().then(setConfigOk).catch(() => setConfigOk({ configured: false }));
+
+      // Generar texto inteligente con GPT-4o (analiza notas, descripción, calcula rentabilidades)
+      setGeneratingText(true);
+      telegramApi.generateText(propiedad)
+        .then(r => { if (r.text) setTexto(r.text); })
+        .catch(() => { /* silencioso — se queda con el texto template */ })
+        .finally(() => setGeneratingText(false));
     }
   }, [isOpen, propiedad]);
 
@@ -178,9 +186,16 @@ export default function TelegramPostModal({ isOpen, onClose, propiedad, onPublis
       <div className="space-y-4">
         {/* Texto editable */}
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">
-            Texto de la publicación
-          </label>
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-sm font-medium text-gray-700">
+              Texto de la publicación
+            </label>
+            {generatingText && (
+              <span className="flex items-center gap-1.5 text-xs text-blue-600">
+                <Loader2 size={12} className="animate-spin" /> Generando con IA…
+              </span>
+            )}
+          </div>
           <textarea
             rows={14}
             value={texto}
