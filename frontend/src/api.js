@@ -80,6 +80,7 @@ export const telegramApi = {
   updatePost: (id, data) => put(`/telegram/posts/${id}`, data),
   deletePost: (id) => del(`/telegram/posts/${id}`),
   getPublished: (propiedadId) => get(`/telegram/propiedad/${propiedadId}/published`),
+  getPublishedIds: () => get('/telegram/published-ids'),
   generateText: (propiedad) => post('/telegram/generate-text', { propiedad }),
 };
 

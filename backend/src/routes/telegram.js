@@ -315,6 +315,17 @@ router.get('/propiedad/:id/published', async (req, res) => {
   res.json({ published: (data || []).length > 0, post: data?.[0] || null });
 });
 
+// GET /telegram/published-ids — lista de propiedad_ids publicados (para la tabla)
+router.get('/published-ids', async (req, res) => {
+  const { data } = await supabase
+    .from('telegram_posts')
+    .select('propiedad_id')
+    .eq('estado', 'publicado')
+    .not('propiedad_id', 'is', null);
+  const ids = [...new Set((data || []).map(d => d.propiedad_id))];
+  res.json(ids);
+});
+
 export default router;
 
 // ─── Scheduler para posts programados ─────────────────────────────────────────

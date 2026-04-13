@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { propiedadesApi, proveedoresApi } from '../api';
+import { propiedadesApi, proveedoresApi, telegramApi } from '../api';
+import TelegramPostModal from '../components/TelegramPostModal';
 import Modal from '../components/Modal';
 import Badge from '../components/Badge';
 import ConfirmDialog from '../components/ConfirmDialog';
@@ -73,6 +74,8 @@ export default function Propiedades() {
   const [lightbox, setLightbox] = useState(null);
   const [showFilters, setShowFilters] = useState(false);
   const [generateModal, setGenerateModal] = useState(false);
+  const [telegramIds, setTelegramIds] = useState(new Set());
+  const [telegramProp, setTelegramProp] = useState(null); // propiedad para modal Telegram
   const [confirm, setConfirm] = useState(null);
   const fileRef = useRef();
   const adjRef = useRef();
@@ -97,7 +100,12 @@ export default function Propiedades() {
     propiedadesApi.getAll().then(setPropiedades).finally(() => setLoading(false));
   };
 
+  const loadTelegramIds = () => {
+    telegramApi.getPublishedIds().then(ids => setTelegramIds(new Set(ids))).catch(() => {});
+  };
+
   useEffect(loadPropiedades, []);
+  useEffect(loadTelegramIds, []);
   useEffect(() => { proveedoresApi.getAll().then(setProveedores); }, []);
 
   const openCreate = () => {
@@ -369,6 +377,16 @@ export default function Propiedades() {
                 >
                   Ficha
                 </button>
+                <button
+                  onClick={() => setTelegramProp(p)}
+                  className={`px-3 py-1.5 text-xs font-medium rounded-lg ${
+                    telegramIds.has(p.id)
+                      ? 'bg-green-100 text-green-700'
+                      : 'bg-gray-100 text-gray-600 hover:bg-blue-50 hover:text-blue-700'
+                  }`}
+                >
+                  {telegramIds.has(p.id) ? 'TG ✓' : 'Telegram'}
+                </button>
                 <button onClick={(e) => openEdit(p, e)} className="text-gray-400 hover:text-gray-700 text-xs">Editar</button>
                 <button onClick={(e) => handleDelete(p.id, e)} className="text-red-400 hover:text-red-600 text-xs">Eliminar</button>
               </div>
@@ -388,15 +406,16 @@ export default function Propiedades() {
                 <th className="px-4 py-3">Precio</th>
                 <th className="px-4 py-3">Rent. bruta</th>
                 <th className="px-4 py-3">Financiación</th>
+                <th className="px-4 py-3">Telegram</th>
                 <th className="px-4 py-3">Proveedor</th>
                 <th className="px-4 py-3"></th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={9} className="py-10"><LoadingSpinner /></td></tr>
+                <tr><td colSpan={10} className="py-10"><LoadingSpinner /></td></tr>
               ) : filtered.length === 0 ? (
-                <tr><td colSpan={9} className="text-center py-10 text-gray-400">No hay propiedades</td></tr>
+                <tr><td colSpan={10} className="text-center py-10 text-gray-400">No hay propiedades</td></tr>
               ) : filtered.map(p => (
                 <tr key={p.id} className="border-b last:border-0 hover:bg-gray-50 cursor-pointer" onClick={() => navigate(`/propiedades/${p.id}`)}>
                   <td className="px-4 py-3">
@@ -432,6 +451,26 @@ export default function Propiedades() {
                   </td>
                   <td className="px-4 py-3 text-gray-600">{p.rentabilidad_bruta ? `${p.rentabilidad_bruta}%` : '—'}</td>
                   <td className="px-4 py-3">{p.acepta_financiacion ? '✓' : '—'}</td>
+                  <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                    <button
+                      onClick={() => {
+                        if (telegramIds.has(p.id)) {
+                          // Ya publicado — abrir modal para republicar
+                          setTelegramProp(p);
+                        } else {
+                          setTelegramProp(p);
+                        }
+                      }}
+                      className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${
+                        telegramIds.has(p.id)
+                          ? 'bg-green-100 text-green-600 hover:bg-green-200'
+                          : 'bg-gray-100 text-gray-400 hover:bg-blue-100 hover:text-blue-600'
+                      }`}
+                      title={telegramIds.has(p.id) ? 'Publicado en Telegram — clic para republicar' : 'Publicar en Telegram'}
+                    >
+                      {telegramIds.has(p.id) ? '✓' : '—'}
+                    </button>
+                  </td>
                   <td className="px-4 py-3 text-gray-600">
                     {p.proveedores ? <span>{p.proveedores.nombre} <Badge value={p.proveedores.tipo} /></span> : '—'}
                   </td>
@@ -547,6 +586,18 @@ export default function Propiedades() {
           navigate(`/propiedades/${p.id}`);
         }}
       />
+
+      {telegramProp && (
+        <TelegramPostModal
+          isOpen={!!telegramProp}
+          onClose={() => setTelegramProp(null)}
+          propiedad={telegramProp}
+          onPublished={() => {
+            loadTelegramIds();
+            setTelegramProp(null);
+          }}
+        />
+      )}
     </div>
   );
 }
