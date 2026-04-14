@@ -1488,15 +1488,33 @@ function LeadsTable({ leads, showCampana = false, onEditLead, onDeleteLead, onRe
                     </Badge>
                   </td>
                   <td className="py-2 pr-3 text-center">
-                    {lead.estado === 'nuevo' ? (
-                      <span className="text-gray-300 text-xs">—</span>
-                    ) : lead.ultimo_ack === 'leido' ? (
-                      <span className="text-blue-500 text-sm font-semibold" title="Leído">✓✓</span>
-                    ) : lead.ultimo_ack === 'entregado' ? (
-                      <span className="text-gray-500 text-sm font-semibold" title="Entregado">✓✓</span>
-                    ) : (
-                      <span className="text-gray-400 text-sm" title="Enviado">✓</span>
-                    )}
+                    <button
+                      onClick={async (e) => {
+                        e.stopPropagation();
+                        const nuevoEstado = lead.estado === 'nuevo' ? 'enviado' : 'nuevo';
+                        await captacionApi.updateLead(lead.id, {
+                          estado: nuevoEstado,
+                          ultimo_contacto: nuevoEstado === 'enviado' ? new Date().toISOString() : null,
+                        });
+                        if (onRefresh) onRefresh();
+                      }}
+                      title={
+                        lead.estado === 'nuevo'
+                          ? 'Marcar como enviado manualmente'
+                          : 'Marcar como no enviado'
+                      }
+                      className="hover:bg-gray-100 rounded p-1"
+                    >
+                      {lead.estado === 'nuevo' ? (
+                        <span className="text-gray-300 text-xs">—</span>
+                      ) : lead.ultimo_ack === 'leido' ? (
+                        <span className="text-blue-500 text-sm font-semibold">✓✓</span>
+                      ) : lead.ultimo_ack === 'entregado' ? (
+                        <span className="text-gray-500 text-sm font-semibold">✓✓</span>
+                      ) : (
+                        <span className="text-gray-400 text-sm">✓</span>
+                      )}
+                    </button>
                   </td>
                   {showCampana && (
                     <td className="py-2 pr-3 text-gray-500 text-xs">
@@ -1634,6 +1652,7 @@ function CampanaDetail({ campana, onBack, onRefresh, onEditLead, onDeleteLead, o
   const [loadingLeads, setLoadingLeads] = useState(true);
   const [actionLoading, setActionLoading] = useState('');
   const [activeTask, setActiveTask] = useState(null); // tarea de scrape activa si la hay
+  const [waSelectModal, setWaSelectModal] = useState(null); // { leads, tipo: 'inicial' | 'followup' }
 
   const loadLeads = useCallback(() => {
     setLoadingLeads(true);
@@ -1709,18 +1728,28 @@ function CampanaDetail({ campana, onBack, onRefresh, onEditLead, onDeleteLead, o
     setActionLoading('');
   };
 
-  const handleSendWA = async () => {
-    // Solo se envía a móviles no-duplicados — WhatsApp no funciona en fijos
-    // y leads ya contactados en otra campaña se excluyen para no repetir
-    const leadsToSend = leads.filter(l =>
-      l.estado === 'nuevo' && tipoTelefono(l.telefono) === 'movil' && !l.duplicado_de
+  const handleSendWA = () => {
+    // Elegibles: móviles válidos, no duplicados cross-campaña.
+    // NO filtramos por estado — mostramos todos y dejamos que el usuario
+    // seleccione. Los que ya están enviados/respondidos/convertidos
+    // aparecen sin check por defecto.
+    const elegibles = leads.filter(l =>
+      tipoTelefono(l.telefono) === 'movil' && !l.duplicado_de
     );
-    if (leadsToSend.length === 0) {
-      alert('No hay leads nuevos con teléfono móvil válido para enviar por WhatsApp.');
+    if (elegibles.length === 0) {
+      alert('No hay leads con teléfono móvil válido para enviar por WhatsApp.');
       return;
     }
     if (!agentStatus?.whatsapp_connected) {
       alert('WhatsApp no está conectado. Abre el agente y escanea el QR.');
+      return;
+    }
+    setWaSelectModal({ leads: elegibles, tipo: 'inicial' });
+  };
+
+  const confirmSendWA = async (selectedLeads) => {
+    if (selectedLeads.length === 0) {
+      setWaSelectModal(null);
       return;
     }
     setActionLoading('wa_send');
@@ -1729,11 +1758,12 @@ function CampanaDetail({ campana, onBack, onRefresh, onEditLead, onDeleteLead, o
         tipo: 'whatsapp_send',
         payload: {
           campana_id: campana.id,
-          leads: leadsToSend,
+          leads: selectedLeads,
           plantilla_mensaje: campana.plantilla_mensaje,
         },
       });
-      alert(`Tarea creada para enviar WhatsApp a ${leadsToSend.length} leads.`);
+      setWaSelectModal(null);
+      alert(`Tarea creada para enviar WhatsApp a ${selectedLeads.length} leads.`);
     } catch (err) {
       alert('Error creando tarea: ' + err.message);
     }
@@ -1902,7 +1932,145 @@ function CampanaDetail({ campana, onBack, onRefresh, onEditLead, onDeleteLead, o
           onRefresh={loadLeads}
         />
       )}
+
+      {waSelectModal && (
+        <WhatsAppSelectModal
+          leads={waSelectModal.leads}
+          onClose={() => setWaSelectModal(null)}
+          onConfirm={confirmSendWA}
+          loading={actionLoading === 'wa_send'}
+        />
+      )}
     </div>
+  );
+}
+
+// ─── Modal: seleccionar leads antes de enviar WhatsApp ───────────────────────
+function WhatsAppSelectModal({ leads, onClose, onConfirm, loading }) {
+  // Por defecto: marcar los "nuevos" (no enviados) y no-duplicados.
+  // Los que ya están en 'enviado' / 'respondido' / 'convertido' empiezan
+  // desmarcados para no contactarlos dos veces.
+  const [selected, setSelected] = useState(() => {
+    const set = new Set();
+    for (const l of leads) {
+      if (l.estado === 'nuevo' && !l.duplicado_de) set.add(l.id);
+    }
+    return set;
+  });
+
+  const toggle = (id) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    if (selected.size === leads.length) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(leads.map(l => l.id)));
+    }
+  };
+
+  const countNuevos = leads.filter(l => l.estado === 'nuevo').length;
+  const countYaEnviados = leads.filter(l => l.estado !== 'nuevo').length;
+  const selectedArr = leads.filter(l => selected.has(l.id));
+
+  return (
+    <Modal isOpen={true} onClose={onClose} title="Enviar WhatsApp — Selecciona los leads" size="lg">
+      <div className="space-y-3">
+        <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700">
+          Marca los leads a los que quieres enviar mensaje. Los que ya tienen
+          un WhatsApp enviado ({countYaEnviados}) aparecen <strong>sin marcar</strong> para no
+          contactarlos dos veces. Pulsa en el check de la columna "WhatsApp"
+          de la tabla si quieres marcar/desmarcar manualmente que a alguien
+          se le ha enviado ya.
+        </div>
+
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-gray-600">
+            <strong>{selected.size}</strong> de {leads.length} seleccionados
+          </span>
+          <button
+            onClick={toggleAll}
+            className="text-xs text-blue-600 hover:text-blue-700"
+          >
+            {selected.size === leads.length ? 'Deseleccionar todo' : 'Seleccionar todo'}
+          </button>
+        </div>
+
+        <div className="max-h-96 overflow-y-auto border border-gray-200 rounded-lg">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 sticky top-0">
+              <tr className="text-left text-xs text-gray-500 uppercase tracking-wide">
+                <th className="p-2 w-8"></th>
+                <th className="p-2">Vendedor</th>
+                <th className="p-2">Teléfono</th>
+                <th className="p-2">Estado</th>
+                <th className="p-2 text-center">WA</th>
+              </tr>
+            </thead>
+            <tbody>
+              {leads.map(lead => {
+                const yaEnviado = lead.estado !== 'nuevo';
+                return (
+                  <tr
+                    key={lead.id}
+                    className={`border-t border-gray-100 hover:bg-gray-50 cursor-pointer ${yaEnviado ? 'bg-gray-50/50' : ''}`}
+                    onClick={() => toggle(lead.id)}
+                  >
+                    <td className="p-2">
+                      <input
+                        type="checkbox"
+                        checked={selected.has(lead.id)}
+                        onChange={() => toggle(lead.id)}
+                        onClick={e => e.stopPropagation()}
+                        className="w-4 h-4 cursor-pointer"
+                      />
+                    </td>
+                    <td className="p-2 font-medium text-gray-800">
+                      {lead.nombre_vendedor || '—'}
+                    </td>
+                    <td className="p-2 font-mono text-xs text-gray-600">{lead.telefono}</td>
+                    <td className="p-2">
+                      <Badge color={ESTADO_LEAD_COLORS[lead.estado] || 'gray'}>
+                        {ESTADO_LEAD_LABELS[lead.estado] || lead.estado}
+                      </Badge>
+                    </td>
+                    <td className="p-2 text-center">
+                      {yaEnviado ? (
+                        <span className="text-green-500 font-semibold" title="Ya se le envió WhatsApp">✓</span>
+                      ) : (
+                        <span className="text-gray-300">—</span>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="flex justify-end gap-3 pt-2">
+          <button
+            onClick={onClose}
+            disabled={loading}
+            className="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50"
+          >
+            Cancelar
+          </button>
+          <button
+            onClick={() => onConfirm(selectedArr)}
+            disabled={loading || selected.size === 0}
+            className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg disabled:opacity-50"
+          >
+            {loading ? 'Enviando…' : `Enviar a ${selected.size} leads`}
+          </button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

@@ -348,6 +348,16 @@ async function handleWhatsAppTask(tarea) {
       continue;
     }
 
+    // — Doble seguridad: NO reenviar a leads ya contactados en envío inicial —
+    // El frontend ya filtra por estado, pero por si acaso llega un lead
+    // en estado 'enviado' / 'respondido' / 'convertido' / 'descartado',
+    // NO le reenviamos.
+    if (tipo === 'whatsapp_send' && lead.estado !== 'nuevo') {
+      console.log(`[WA] Omitiendo lead ${lead.telefono} — ya está en estado '${lead.estado}'`);
+      omitidos.push(lead.id);
+      continue;
+    }
+
     if (!lead.telefono) {
       fallidos.push(lead.id);
       continue;
