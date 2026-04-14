@@ -55,7 +55,7 @@ let taskRunning = false;
 // ─── Control de envíos WhatsApp ───────────────────────────────────────────────
 const DAILY_LIMIT = 50;
 const SEND_HOUR_START = 8;   // 8:00 hora España
-const SEND_HOUR_END = 18;    // 18:00 hora España
+const SEND_HOUR_END = 20;    // 20:00 hora España
 const DELAY_MIN_MS = 3 * 60 * 1000;  // 3 min mínimo entre mensajes
 const DELAY_MAX_MS = 8 * 60 * 1000;  // 8 min máximo entre mensajes
 const COUNTER_FILE = path.join(__dirname, '.daily_count.json');
@@ -362,7 +362,7 @@ async function handleWhatsAppTask(tarea) {
 
     // — Franja horaria 8:00–18:00 hora España —
     if (!isWithinSendWindow()) {
-      console.warn(`[WA] Fuera de horario de envío (8:00–18:00). Hora España: ${getSpainHour()}h. Parando.`);
+      console.warn(`[WA] Fuera de horario de envío (8:00–20:00). Hora España: ${getSpainHour()}h. Parando.`);
       omitidos.push(...leads.slice(leads.indexOf(lead)).map(l => l.id));
       break;
     }
