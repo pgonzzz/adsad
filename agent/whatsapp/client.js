@@ -11,15 +11,18 @@ let client = null;
 let connected = false;
 let currentQR = null;
 let onIncomingMessage = null; // callback para mensajes recibidos
+let onMessageAck = null; // callback para actualizaciones de estado (enviado/entregado/leido)
 
 /**
  * Inicializa el cliente de WhatsApp.
  * @param {(qrBase64: string) => void} onQR — llamado cuando hay un QR nuevo
  * @param {() => void} onReady — llamado cuando WA está listo para enviar mensajes
  * @param {(phone: string) => void} onMessage — llamado cuando se recibe un mensaje de un contacto
+ * @param {(messageId: string, ackStatus: string) => void} onAck — llamado cuando cambia el ACK de un mensaje enviado
  */
-function initWhatsApp(onQR, onReady, onMessage) {
+function initWhatsApp(onQR, onReady, onMessage, onAck) {
   onIncomingMessage = onMessage;
+  onMessageAck = onAck;
   client = new Client({
     authStrategy: new LocalAuth({ dataPath: './wa_session' }),
     puppeteer: {
@@ -94,6 +97,21 @@ function initWhatsApp(onQR, onReady, onMessage) {
     }
   });
 
+  // ACKs de mensajes enviados
+  // Valores: ACK_PENDING=0, ACK_SERVER=1, ACK_DEVICE=2, ACK_READ=3, ACK_PLAYED=4
+  client.on('message_ack', (msg, ack) => {
+    if (!msg.fromMe || !onMessageAck) return;
+    const statusMap = {
+      0: 'pendiente',
+      1: 'enviado',
+      2: 'entregado',
+      3: 'leido',
+      4: 'leido',
+    };
+    const status = statusMap[ack] || 'enviado';
+    onMessageAck(msg.id?._serialized || msg.id, status);
+  });
+
   client.initialize();
 }
 
@@ -125,27 +143,28 @@ function formatPhone(phone) {
  * Envía un mensaje de WhatsApp.
  * @param {string} phone — número en cualquier formato español
  * @param {string} message — texto del mensaje
- * @returns {Promise<boolean>} — true si se envió, false si hubo error
+ * @returns {Promise<{ok: boolean, messageId: string|null}>} — resultado
  */
 async function sendMessage(phone, message) {
   if (!connected || !client) {
     console.error('[WhatsApp] Cliente no conectado.');
-    return false;
+    return { ok: false, messageId: null };
   }
 
   const chatId = formatPhone(phone);
   if (!chatId) {
     console.warn(`[WhatsApp] Número no válido para móvil español: ${phone}`);
-    return false;
+    return { ok: false, messageId: null };
   }
 
   try {
-    await client.sendMessage(chatId, message);
-    console.log(`[WhatsApp] Mensaje enviado a ${chatId}`);
-    return true;
+    const sent = await client.sendMessage(chatId, message);
+    const messageId = sent.id?._serialized || String(sent.id);
+    console.log(`[WhatsApp] Mensaje enviado a ${chatId} (id: ${messageId.slice(0, 40)}…)`);
+    return { ok: true, messageId };
   } catch (err) {
     console.error(`[WhatsApp] Error enviando a ${chatId}:`, err.message);
-    return false;
+    return { ok: false, messageId: null };
   }
 }
 

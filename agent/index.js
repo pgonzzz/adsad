@@ -368,17 +368,31 @@ async function handleWhatsAppTask(tarea) {
     }
 
     // — Rellenar plantilla con datos del lead —
+    // Filtrar nombres de vendedor que el scraper captura mal
+    // (alt-text de imágenes, títulos de secciones, etc.)
+    const NOMBRES_BASURA = new Set([
+      'salón', 'salon', 'cocina', 'baño', 'bano', 'habitación', 'habitacion',
+      'dormitorio', 'comedor', 'foto', 'fotos', 'imagen', 'imagenes', 'imágenes',
+      'terraza', 'balcón', 'balcon', 'pasillo', 'entrada', 'fachada',
+      'plano', 'planos', 'exterior', 'interior', 'vista', 'vistas',
+    ]);
+    const nombreLimpio = (lead.nombre_vendedor || '').trim();
+    const nombreOk = nombreLimpio &&
+      !NOMBRES_BASURA.has(nombreLimpio.toLowerCase()) &&
+      nombreLimpio.length > 2;
+    const nombreParaMsg = nombreOk ? nombreLimpio : 'propietario';
+
     const mensaje = plantilla
-      .replace(/{{nombre}}/g, lead.nombre_vendedor || 'propietario')
+      .replace(/{{nombre}}/g, nombreParaMsg)
       .replace(/{{precio}}/g, lead.precio ? `${lead.precio.toLocaleString('es-ES')}€` : '')
       .replace(/{{poblacion}}/g, lead.poblacion || '')
       .replace(/{{tipo}}/g, lead.tipo || 'inmueble')
       .replace(/{{url}}/g, lead.url_anuncio || '');
 
-    const ok = await sendMessage(lead.telefono, mensaje);
+    const { ok, messageId } = await sendMessage(lead.telefono, mensaje);
 
     if (ok) {
-      enviados.push(lead.id);
+      enviados.push({ lead_id: lead.id, message_id: messageId, mensaje });
       dailyCount++;
       writeDailyCount(dailyCount);
       console.log(`[WA] ✓ Enviado a ${lead.telefono} (${dailyCount}/${DAILY_LIMIT} hoy)`);
@@ -465,6 +479,17 @@ async function main() {
         console.log(`[WA] Lead ${phone} marcado como respondido automáticamente.`);
       } catch (err) {
         console.warn(`[WA] No se pudo marcar lead ${phone} como respondido:`, err.message);
+      }
+    },
+    async (messageId, ackStatus) => {
+      // Callback cuando cambia el ACK de un mensaje enviado (entregado, leido)
+      try {
+        await api.post('/api/captacion/agent/ack', { message_id: messageId, ack_status: ackStatus });
+        if (ackStatus === 'leido') {
+          console.log(`[WA] ✓✓ Mensaje leído: ${messageId.slice(0, 40)}…`);
+        }
+      } catch (err) {
+        // silencioso — puede que el mensaje no sea de un envío trackeado
       }
     }
   );

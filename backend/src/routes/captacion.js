@@ -241,6 +241,65 @@ router.post('/leads/respuesta', agentAuthMiddleware, async (req, res) => {
   res.json({ updated: true, lead_id: lead.id });
 });
 
+// POST /captacion/agent/ack — actualizar estado ACK de un mensaje enviado
+// (enviado/entregado/leido) cuando WhatsApp notifica un cambio.
+router.post('/agent/ack', agentAuthMiddleware, async (req, res) => {
+  const { message_id, ack_status } = req.body;
+  if (!message_id || !ack_status) {
+    return res.status(400).json({ error: 'message_id y ack_status requeridos' });
+  }
+
+  // Prioridad: no sobrescribir 'leido' con 'entregado' ni con 'enviado'
+  const priority = { pendiente: 0, enviado: 1, entregado: 2, leido: 3 };
+  const { data: existing } = await supabase
+    .from('captacion_envios')
+    .select('id, ack_status, lead_id')
+    .eq('message_id', message_id)
+    .maybeSingle();
+
+  if (!existing) return res.json({ updated: false, reason: 'message_id no encontrado' });
+
+  const currentPrio = priority[existing.ack_status] ?? 0;
+  const newPrio = priority[ack_status] ?? 0;
+  if (newPrio <= currentPrio) return res.json({ updated: false, reason: 'prioridad menor' });
+
+  await supabase
+    .from('captacion_envios')
+    .update({ ack_status, ack_at: new Date().toISOString() })
+    .eq('id', existing.id);
+
+  // Si llega a 'leido', también actualizar el lead para que sea visible
+  if (ack_status === 'leido') {
+    await supabase
+      .from('captacion_leads')
+      .update({ ultimo_ack: 'leido' })
+      .eq('id', existing.lead_id);
+  }
+
+  res.json({ updated: true });
+});
+
+// GET /captacion/leads/:id/envios — historial de mensajes enviados a un lead
+router.get('/leads/:id/envios', authMiddleware, async (req, res) => {
+  // Verificar propiedad del lead
+  const { data: lead } = await supabase
+    .from('captacion_leads')
+    .select('captacion_campanas(user_id)')
+    .eq('id', req.params.id)
+    .single();
+  if (!lead || lead.captacion_campanas?.user_id !== req.user.id) {
+    return res.status(403).json({ error: 'No tienes acceso a este lead' });
+  }
+
+  const { data, error } = await supabase
+    .from('captacion_envios')
+    .select('*')
+    .eq('lead_id', req.params.id)
+    .order('created_at', { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
 // DELETE /captacion/leads/:id — eliminar lead (solo si es del usuario)
 router.delete('/leads/:id', authMiddleware, async (req, res) => {
   // Verificar propiedad
@@ -749,10 +808,16 @@ router.post('/agent/result', agentAuthMiddleware, async (req, res) => {
     }
   }
 
-  // Si es una tarea de whatsapp, actualizar estado de leads enviados
+  // Si es una tarea de whatsapp, actualizar estado de leads enviados.
+  // Acepta dos formatos de enviados:
+  //   - Antiguo: ['leadId1', 'leadId2', ...]
+  //   - Nuevo:   [{lead_id, message_id, mensaje}, ...]
   if (!isPartial && (tipo === 'whatsapp_send' || tipo === 'whatsapp_followup') && resultado?.enviados) {
     const tipo_envio = tipo === 'whatsapp_followup' ? 'followup' : 'inicial';
-    for (const leadId of resultado.enviados) {
+    for (const entry of resultado.enviados) {
+      const leadId = typeof entry === 'string' ? entry : entry.lead_id;
+      const messageId = typeof entry === 'string' ? null : entry.message_id;
+      const msgText = typeof entry === 'string' ? (resultado.mensaje || '') : (entry.mensaje || resultado.mensaje || '');
       await supabase
         .from('captacion_leads')
         .update({ estado: 'enviado', ultimo_contacto: new Date().toISOString() })
@@ -762,8 +827,10 @@ router.post('/agent/result', agentAuthMiddleware, async (req, res) => {
       await supabase.from('captacion_envios').insert([{
         lead_id: leadId,
         tipo: tipo_envio,
-        mensaje: resultado.mensaje || '',
+        mensaje: msgText,
         estado: 'enviado',
+        message_id: messageId,
+        ack_status: 'enviado',
       }]);
     }
   }

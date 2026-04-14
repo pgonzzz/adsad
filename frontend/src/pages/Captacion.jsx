@@ -1287,6 +1287,7 @@ function LeadsTable({ leads, showCampana = false, onEditLead, onDeleteLead, onRe
   const [filterProvincia, setFilterProvincia] = useState('');
   const [filterPoblacion, setFilterPoblacion] = useState('');
   const [convertirLead, setConvertirLead] = useState(null);
+  const [enviosModal, setEnviosModal] = useState(null); // lead del que mostrar envíos
 
   const filtered = leads.filter(l => {
     if (filterEstado && l.estado !== filterEstado) return false;
@@ -1489,7 +1490,20 @@ function LeadsTable({ leads, showCampana = false, onEditLead, onDeleteLead, onRe
                       {lead.captacion_campanas?.nombre || '—'}
                     </td>
                   )}
-                  <td className="py-2 pr-3 text-gray-400 text-xs">{timeAgo(lead.ultimo_contacto)}</td>
+                  <td className="py-2 pr-3 text-gray-400 text-xs">
+                    <div className="flex items-center gap-1">
+                      {timeAgo(lead.ultimo_contacto)}
+                      {lead.ultimo_ack === 'leido' && (
+                        <span title="Mensaje leído" className="text-blue-500">✓✓</span>
+                      )}
+                      {lead.ultimo_ack === 'entregado' && (
+                        <span title="Mensaje entregado" className="text-gray-500">✓✓</span>
+                      )}
+                      {lead.ultimo_ack === 'enviado' && (
+                        <span title="Mensaje enviado" className="text-gray-400">✓</span>
+                      )}
+                    </div>
+                  </td>
                   <td className="py-2">
                     <div className="flex items-center gap-1">
                       {lead.url_anuncio && (
@@ -1510,6 +1524,15 @@ function LeadsTable({ leads, showCampana = false, onEditLead, onDeleteLead, onRe
                           title="Convertir en proveedor"
                         >
                           <UserPlus size={14} />
+                        </button>
+                      )}
+                      {(lead.estado === 'enviado' || lead.estado === 'respondido' || lead.estado === 'convertido') && (
+                        <button
+                          onClick={() => setEnviosModal(lead)}
+                          className="p-1 text-gray-400 hover:text-blue-600 rounded"
+                          title="Ver mensajes enviados"
+                        >
+                          <MessageSquare size={14} />
                         </button>
                       )}
                       <button
@@ -1542,12 +1565,71 @@ function LeadsTable({ leads, showCampana = false, onEditLead, onDeleteLead, onRe
           onConverted={() => { setConvertirLead(null); if (onRefresh) onRefresh(); }}
         />
       )}
+
+      <EnviosHistoryModal
+        lead={enviosModal}
+        onClose={() => setEnviosModal(null)}
+      />
     </div>
   );
 }
 
+// ─── Modal: historial de WhatsApps enviados a un lead ─────────────────────────
+function EnviosHistoryModal({ lead, onClose }) {
+  const [envios, setEnvios] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!lead) return;
+    setLoading(true);
+    captacionApi.getLeadEnvios(lead.id)
+      .then(setEnvios)
+      .catch(() => setEnvios([]))
+      .finally(() => setLoading(false));
+  }, [lead]);
+
+  if (!lead) return null;
+
+  const ackLabel = {
+    pendiente: { text: 'Pendiente', color: 'text-gray-400' },
+    enviado: { text: '✓ Enviado', color: 'text-gray-500' },
+    entregado: { text: '✓✓ Entregado', color: 'text-gray-600' },
+    leido: { text: '✓✓ Leído', color: 'text-blue-500 font-medium' },
+  };
+
+  return (
+    <Modal isOpen={!!lead} onClose={onClose} title={`Mensajes enviados a ${lead.nombre_vendedor || lead.telefono || 'lead'}`} size="md">
+      {loading ? (
+        <p className="text-center py-8 text-gray-400 text-sm">Cargando…</p>
+      ) : envios.length === 0 ? (
+        <p className="text-center py-8 text-gray-400 text-sm">No hay mensajes enviados todavía.</p>
+      ) : (
+        <div className="space-y-3">
+          {envios.map(e => {
+            const ack = ackLabel[e.ack_status || 'enviado'] || ackLabel.enviado;
+            return (
+              <div key={e.id} className="border border-gray-200 rounded-lg p-3">
+                <div className="flex items-center justify-between mb-2 text-xs">
+                  <span className="text-gray-400">
+                    {e.tipo === 'followup' ? '🔔 Follow-up' : '💬 Inicial'} · {new Date(e.created_at).toLocaleString('es-ES')}
+                  </span>
+                  <span className={ack.color}>{ack.text}</span>
+                </div>
+                <p className="text-sm text-gray-700 whitespace-pre-wrap">{e.mensaje || '(sin contenido guardado)'}</p>
+                {e.ack_at && e.ack_status === 'leido' && (
+                  <p className="text-[10px] text-blue-500 mt-1">Leído el {new Date(e.ack_at).toLocaleString('es-ES')}</p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 // ─── Vista detalle campaña ────────────────────────────────────────────────────
-function CampanaDetail({ campana, onBack, onRefresh, onEditLead, onDeleteLead, agentStatus }) {
+function CampanaDetail({ campana, onBack, onRefresh, onEditLead, onDeleteLead, onEditCampana, agentStatus }) {
   const [leads, setLeads] = useState([]);
   const [loadingLeads, setLoadingLeads] = useState(true);
   const [actionLoading, setActionLoading] = useState('');
@@ -1714,6 +1796,13 @@ function CampanaDetail({ campana, onBack, onRefresh, onEditLead, onDeleteLead, a
             {campana.portal} · {campana.tipo} · {campana.poblacion || campana.provincia || '—'}
           </p>
         </div>
+        <button
+          onClick={() => onEditCampana && onEditCampana(campana)}
+          className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-300 text-gray-600 hover:bg-gray-50 text-xs font-medium rounded-lg"
+          title="Editar campaña y plantillas de mensaje"
+        >
+          <Pencil size={12} /> Editar campaña
+        </button>
         <Badge color={ESTADO_CAMPANA_COLORS[campana.estado] || 'gray'}>
           {campana.estado}
         </Badge>
@@ -1943,6 +2032,7 @@ export default function Captacion() {
           onRefresh={loadCampanas}
           onEditLead={handleEditLead}
           onDeleteLead={async (id) => { await captacionApi.deleteLead(id); }}
+          onEditCampana={(c) => { setEditing(c); setModal(true); }}
           agentStatus={agentStatus}
         />
         <LeadEditModal
