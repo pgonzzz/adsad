@@ -1281,8 +1281,12 @@ function ConvertirProveedorModal({ lead, onClose, onConverted }) {
 }
 
 // ─── Tabla de leads ───────────────────────────────────────────────────────────
-function LeadsTable({ leads, showCampana = false, onEditLead, onDeleteLead, onRefresh }) {
-  const [filterEstado, setFilterEstado] = useState('');
+function LeadsTable({ leads, showCampana = false, onEditLead, onDeleteLead, onRefresh, onLeadUpdated, filterEstado: filterEstadoProp, onFilterEstadoChange }) {
+  // Filtro estado controlado por el padre si se pasa como prop
+  const [filterEstadoLocal, setFilterEstadoLocal] = useState('');
+  const filterEstado = filterEstadoProp !== undefined ? filterEstadoProp : filterEstadoLocal;
+  const setFilterEstado = onFilterEstadoChange || setFilterEstadoLocal;
+
   const [filterTipoTel, setFilterTipoTel] = useState('');
   const [filterProvincia, setFilterProvincia] = useState('');
   const [filterPoblacion, setFilterPoblacion] = useState('');
@@ -1489,14 +1493,22 @@ function LeadsTable({ leads, showCampana = false, onEditLead, onDeleteLead, onRe
                   </td>
                   <td className="py-2 pr-3 text-center">
                     <button
-                      onClick={async (e) => {
+                      onClick={(e) => {
                         e.stopPropagation();
                         const nuevoEstado = lead.estado === 'nuevo' ? 'enviado' : 'nuevo';
-                        await captacionApi.updateLead(lead.id, {
+                        const nuevoContacto = nuevoEstado === 'enviado' ? new Date().toISOString() : null;
+                        // Actualización optimista inmediata (sin recargar toda la lista)
+                        if (onLeadUpdated) {
+                          onLeadUpdated({ ...lead, estado: nuevoEstado, ultimo_contacto: nuevoContacto });
+                        }
+                        // Persiste en backend en segundo plano
+                        captacionApi.updateLead(lead.id, {
                           estado: nuevoEstado,
-                          ultimo_contacto: nuevoEstado === 'enviado' ? new Date().toISOString() : null,
+                          ultimo_contacto: nuevoContacto,
+                        }).catch(() => {
+                          // si falla, revertir
+                          if (onLeadUpdated) onLeadUpdated(lead);
                         });
-                        if (onRefresh) onRefresh();
                       }}
                       title={
                         lead.estado === 'nuevo'
@@ -1653,6 +1665,13 @@ function CampanaDetail({ campana, onBack, onRefresh, onEditLead, onDeleteLead, o
   const [actionLoading, setActionLoading] = useState('');
   const [activeTask, setActiveTask] = useState(null); // tarea de scrape activa si la hay
   const [waSelectModal, setWaSelectModal] = useState(null); // { leads, tipo: 'inicial' | 'followup' }
+  const [filterEstado, setFilterEstado] = useState(''); // controlado desde los stats
+
+  const handleLeadUpdated = useCallback((updatedLead) => {
+    // Actualización optimista: modifica el lead en el estado local sin
+    // volver a llamar a la API. Evita recargar toda la lista tras un click.
+    setLeads(prev => prev.map(l => l.id === updatedLead.id ? { ...l, ...updatedLead } : l));
+  }, []);
 
   const loadLeads = useCallback(() => {
     setLoadingLeads(true);
@@ -1838,20 +1857,31 @@ function CampanaDetail({ campana, onBack, onRefresh, onEditLead, onDeleteLead, o
         </Badge>
       </div>
 
-      {/* Stats */}
+      {/* Stats — clic filtra la tabla por ese estado */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 sm:gap-3 mb-4">
         {[
-          { label: 'Total leads', value: stats.total, color: 'text-gray-700' },
-          { label: 'Nuevos', value: stats.nuevo, color: 'text-blue-600' },
-          { label: 'Enviados', value: stats.enviado, color: 'text-yellow-600' },
-          { label: 'Respondidos', value: stats.respondido, color: 'text-green-600' },
-          { label: 'Convertidos', value: stats.convertido, color: 'text-purple-600' },
-        ].map(s => (
-          <div key={s.label} className="bg-white border border-gray-200 rounded-xl p-3 text-center">
-            <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
-            <p className="text-xs text-gray-500 mt-0.5">{s.label}</p>
-          </div>
-        ))}
+          { label: 'Total leads', value: stats.total, color: 'text-gray-700', estado: '' },
+          { label: 'Nuevos', value: stats.nuevo, color: 'text-blue-600', estado: 'nuevo' },
+          { label: 'Enviados', value: stats.enviado, color: 'text-amber-600', estado: 'enviado' },
+          { label: 'Respondidos', value: stats.respondido, color: 'text-green-600', estado: 'respondido' },
+          { label: 'Convertidos', value: stats.convertido, color: 'text-purple-600', estado: 'convertido' },
+        ].map(s => {
+          const active = filterEstado === s.estado;
+          return (
+            <button
+              key={s.label}
+              onClick={() => setFilterEstado(active && s.estado !== '' ? '' : s.estado)}
+              className={`rounded-xl p-3 text-center transition-colors border ${
+                active
+                  ? 'bg-blue-50 border-blue-400 ring-1 ring-blue-200'
+                  : 'bg-white border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+              }`}
+            >
+              <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
+              <p className="text-xs text-gray-500 mt-0.5">{s.label}</p>
+            </button>
+          );
+        })}
       </div>
 
       {/* Avisos de deduplicación */}
@@ -1930,6 +1960,9 @@ function CampanaDetail({ campana, onBack, onRefresh, onEditLead, onDeleteLead, o
           onEditLead={handleEditLead}
           onDeleteLead={handleDeleteLead}
           onRefresh={loadLeads}
+          onLeadUpdated={handleLeadUpdated}
+          filterEstado={filterEstado}
+          onFilterEstadoChange={setFilterEstado}
         />
       )}
 
