@@ -2041,6 +2041,21 @@ export default function Captacion() {
           lead={editingLead}
           onSaved={handleLeadSaved}
         />
+        {/* Modal editar campaña (se puede abrir desde el botón de la cabecera) */}
+        <CampanaModal
+          open={modal}
+          onClose={() => setModal(false)}
+          editing={editing}
+          onSaved={(updated) => {
+            handleSaved(updated);
+            // Refrescar la campaña seleccionada si es la que se estaba editando
+            if (updated && selectedCampana && updated.id === selectedCampana.id) {
+              // Recargar para ver los cambios en la plantilla
+              loadCampanas();
+            }
+          }}
+          onSaveAndScrape={handleSaveAndScrape}
+        />
       </div>
     );
   }
