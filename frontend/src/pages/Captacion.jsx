@@ -1433,6 +1433,7 @@ function LeadsTable({ leads, showCampana = false, onEditLead, onDeleteLead, onRe
                 <th className="pb-2 pr-3 font-medium">Precio</th>
                 <th className="pb-2 pr-3 font-medium">Población</th>
                 <th className="pb-2 pr-3 font-medium">Estado</th>
+                <th className="pb-2 pr-3 font-medium text-center">WhatsApp</th>
                 {showCampana && <th className="pb-2 pr-3 font-medium">Campaña</th>}
                 <th className="pb-2 pr-3 font-medium">Último contacto</th>
                 <th className="pb-2 font-medium">Acciones</th>
@@ -1444,7 +1445,8 @@ function LeadsTable({ leads, showCampana = false, onEditLead, onDeleteLead, onRe
                   <td className="py-2 pr-3 font-medium text-gray-800">
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <span>{lead.nombre_vendedor || '—'}</span>
-                      {lead.es_particular === false && (
+                      {lead.es_particular === false &&
+                       !(lead.nombre_vendedor || '').toLowerCase().startsWith('particular') && (
                         <span className="text-xs text-gray-400">(agencia)</span>
                       )}
                       {lead.duplicado_de && (
@@ -1485,25 +1487,23 @@ function LeadsTable({ leads, showCampana = false, onEditLead, onDeleteLead, onRe
                       {ESTADO_LEAD_LABELS[lead.estado] || lead.estado}
                     </Badge>
                   </td>
+                  <td className="py-2 pr-3 text-center">
+                    {lead.estado === 'nuevo' ? (
+                      <span className="text-gray-300 text-xs">—</span>
+                    ) : lead.ultimo_ack === 'leido' ? (
+                      <span className="text-blue-500 text-sm font-semibold" title="Leído">✓✓</span>
+                    ) : lead.ultimo_ack === 'entregado' ? (
+                      <span className="text-gray-500 text-sm font-semibold" title="Entregado">✓✓</span>
+                    ) : (
+                      <span className="text-gray-400 text-sm" title="Enviado">✓</span>
+                    )}
+                  </td>
                   {showCampana && (
                     <td className="py-2 pr-3 text-gray-500 text-xs">
                       {lead.captacion_campanas?.nombre || '—'}
                     </td>
                   )}
-                  <td className="py-2 pr-3 text-gray-400 text-xs">
-                    <div className="flex items-center gap-1">
-                      {timeAgo(lead.ultimo_contacto)}
-                      {lead.ultimo_ack === 'leido' && (
-                        <span title="Mensaje leído" className="text-blue-500">✓✓</span>
-                      )}
-                      {lead.ultimo_ack === 'entregado' && (
-                        <span title="Mensaje entregado" className="text-gray-500">✓✓</span>
-                      )}
-                      {lead.ultimo_ack === 'enviado' && (
-                        <span title="Mensaje enviado" className="text-gray-400">✓</span>
-                      )}
-                    </div>
-                  </td>
+                  <td className="py-2 pr-3 text-gray-400 text-xs">{timeAgo(lead.ultimo_contacto)}</td>
                   <td className="py-2">
                     <div className="flex items-center gap-1">
                       {lead.url_anuncio && (
