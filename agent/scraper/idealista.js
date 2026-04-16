@@ -260,26 +260,26 @@ function buildPageUrl(baseUrl, pageNum) {
 async function extractPhone(page) {
   try {
     // ── Estrategia 1: buscar por TEXTO del botón ("Ver teléfono") ─────────
-    // Es la más fiable porque Idealista puede cambiar las clases CSS pero
-    // el texto "Ver teléfono" / "Mostrar teléfono" es estable.
     const clickedByText = await page.evaluate(() => {
-      const candidates = document.querySelectorAll('button, a, [role="button"]');
+      const candidates = document.querySelectorAll('button, a, [role="button"], span[role="button"], div[role="button"]');
       for (const c of candidates) {
         const txt = ((c.innerText || c.textContent || '') + ' ' + (c.getAttribute('aria-label') || '')).toLowerCase();
         if (txt.includes('ver teléfono') || txt.includes('ver telefono')
             || txt.includes('mostrar teléfono') || txt.includes('mostrar telefono')
             || txt.includes('ver móvil') || txt.includes('ver movil')
-            || txt.includes('mostrar número') || txt.includes('mostrar numero')) {
+            || txt.includes('mostrar número') || txt.includes('mostrar numero')
+            || txt.includes('llamar') || txt.includes('teléfono')) {
           c.scrollIntoView({ block: 'center' });
           c.click();
-          return true;
+          return txt.slice(0, 40);
         }
       }
-      return false;
+      return null;
     });
 
     if (clickedByText) {
-      await sleep(1000, 2000);
+      console.log(`[Scraper]     Botón clicado: "${clickedByText}"`);
+      await sleep(1500, 2500);
     } else {
       // ── Estrategia 2: selectores de clase (fallback) ──────────────────────
       const btnSelectors = [
@@ -289,39 +289,78 @@ async function extractPhone(page) {
         '.phone-btn',
         '[data-testid="phone-button"]',
         'span.icon-phone',
+        'a[href^="tel:"]',
+        '[class*="phone-button"]',
+        '[class*="ver-telefono"]',
+        '[class*="see-phone"]',
       ];
 
+      let clicked = false;
       for (const sel of btnSelectors) {
         try {
           const btn = await page.$(sel);
           if (btn) {
             await btn.click();
-            await sleep(1000, 2000);
+            console.log(`[Scraper]     Botón clicado por selector: ${sel}`);
+            await sleep(1500, 2500);
+            clicked = true;
             break;
           }
         } catch { /* ignorar */ }
       }
+
+      if (!clicked) {
+        // ── Estrategia 3: buscar un tel: link directamente (ya revelado) ──
+        const directTel = await page.evaluate(() => {
+          const tel = document.querySelector('a[href^="tel:"]');
+          return tel ? tel.href.replace('tel:', '') : null;
+        });
+        if (directTel) {
+          const clean = directTel.replace(/[\s-+]/g, '').replace(/^34/, '');
+          if (/^[679]\d{8}$/.test(clean)) {
+            console.log(`[Scraper]     Tel directo (ya revelado): ${clean}`);
+            return clean;
+          }
+        }
+        console.log('[Scraper]     No se encontró botón "Ver teléfono" ni tel: link');
+      }
     }
 
     // ── Buscar el número revelado ─────────────────────────────────────────
-    // 1. Regex permisiva sobre el texto completo de la página (inline reveal)
-    const pageText = await page.evaluate(() => document.body.innerText);
-    const re = /(?:\+?34[\s-]?)?([679]\d{2})[\s-]?(\d{2,3})[\s-]?(\d{2,3})/;
-    const m = pageText.match(re);
-    if (m) {
-      const clean = (m[1] + m[2] + m[3]).replace(/[\s-]/g, '');
-      if (/^[679]\d{8}$/.test(clean)) return clean;
-    }
-
-    // 2. Buscar en enlaces tel: (a veces Idealista pone uno tras el reveal)
+    // 1. tel: links (más fiable)
     const telPhone = await page.evaluate(() => {
-      const tel = document.querySelector('a[href^="tel:"]');
-      return tel ? tel.href.replace('tel:', '') : null;
+      const tels = document.querySelectorAll('a[href^="tel:"]');
+      for (const tel of tels) {
+        const num = tel.href.replace('tel:', '').replace(/[\s-+]/g, '').replace(/^34/, '');
+        if (/^[679]\d{8}$/.test(num)) return num;
+      }
+      return null;
     });
-    if (telPhone) {
-      const clean = telPhone.replace(/[\s-+]/g, '').replace(/^34/, '');
-      if (/^[679]\d{8}$/.test(clean)) return clean;
-    }
+    if (telPhone) return telPhone;
+
+    // 2. Regex sobre el texto visible de la zona de contacto
+    const phoneFromText = await page.evaluate(() => {
+      // Buscar en la zona de contacto/sidebar, no en toda la página
+      const zones = document.querySelectorAll(
+        '[class*="contact"], [class*="phone"], [class*="aside"], [class*="sidebar"], [class*="owner"]'
+      );
+      const re = /(?:\+?34[\s-]?)?([679]\d{2})[\s-]?(\d{2,3})[\s-]?(\d{2,3})/;
+      for (const zone of zones) {
+        const m = (zone.innerText || '').match(re);
+        if (m) {
+          const clean = (m[1] + m[2] + m[3]).replace(/[\s-]/g, '');
+          if (/^[679]\d{8}$/.test(clean)) return clean;
+        }
+      }
+      // Fallback: buscar en toda la página
+      const fullMatch = (document.body.innerText || '').match(re);
+      if (fullMatch) {
+        const clean = (fullMatch[1] + fullMatch[2] + fullMatch[3]).replace(/[\s-]/g, '');
+        if (/^[679]\d{8}$/.test(clean)) return clean;
+      }
+      return null;
+    });
+    if (phoneFromText) return phoneFromText;
 
     return null;
 
