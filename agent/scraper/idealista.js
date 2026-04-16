@@ -735,9 +735,15 @@ async function scrapeIdealista(params, onLead, shouldAbort) {
           const titleEl = el.querySelector('.item-title, h3.item-title, [class*="item-title"]');
           const titulo = titleEl ? (titleEl.textContent || '').trim() : '';
 
+          // Precio: extraer solo el PRIMER número con formato de precio.
+          // Idealista a veces muestra "89.900 € 94.900 €" (original + tachado)
+          // y si hacemos replace(/[^\d]/g) concatena todos los dígitos.
           const priceEl = el.querySelector('.item-price, .price-row, [class*="price"]');
           const precioText = priceEl ? (priceEl.textContent || '').trim() : '';
-          const precio = parseInt(precioText.replace(/[^\d]/g, ''), 10) || null;
+          const priceMatch = precioText.match(/([\d.]+)\s*€/);
+          const precio = priceMatch
+            ? parseInt(priceMatch[1].replace(/\./g, ''), 10) || null
+            : null;
 
           // Vendedor: buscar el logo/nombre de la agencia, pero filtrar alt-texts
           // genéricos que NO son el nombre del vendedor (fotos, miniaturas, etc.)
