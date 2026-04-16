@@ -95,6 +95,38 @@ export default function LeadDetalle() {
                 </a>
               )}
             </div>
+
+            {/* Indicador de WhatsApp */}
+            <div className="mt-3 flex items-center gap-3 flex-wrap">
+              {lead.estado === 'nuevo' ? (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-gray-100 text-gray-500 rounded-lg text-xs">
+                  <Send size={12} /> WhatsApp no enviado
+                </span>
+              ) : lead.estado === 'respondido' ? (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-green-100 text-green-700 rounded-lg text-xs font-medium">
+                  <Check size={12} /> Ha respondido al WhatsApp
+                </span>
+              ) : (
+                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs ${
+                  lead.ultimo_ack === 'leido'
+                    ? 'bg-blue-100 text-blue-700 font-medium'
+                    : lead.ultimo_ack === 'entregado'
+                    ? 'bg-gray-100 text-gray-600'
+                    : 'bg-amber-50 text-amber-700'
+                }`}>
+                  <Send size={12} />
+                  {lead.ultimo_ack === 'leido' ? 'WhatsApp leído ✓✓' :
+                   lead.ultimo_ack === 'entregado' ? 'WhatsApp entregado ✓✓' :
+                   'WhatsApp enviado ✓'}
+                </span>
+              )}
+              {lead.ultimo_contacto && (
+                <span className="text-xs text-gray-400">
+                  Último contacto: {fmtDate(lead.ultimo_contacto)}
+                </span>
+              )}
+            </div>
+
             {lead.captacion_campanas && (
               <p className="text-xs text-gray-400 mt-2">
                 Campaña: {lead.captacion_campanas.nombre} · {lead.captacion_campanas.portal}
