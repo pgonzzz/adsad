@@ -87,7 +87,7 @@ export async function processReminders() {
       inversor: `/inversores/${r.entidad_id}`,
       proveedor: `/proveedores`,
     };
-    await supabase.from('notificaciones').insert([{
+    const { error: notifErr } = await supabase.from('notificaciones').insert([{
       user_id: r.user_id,
       titulo: `⏰ ${r.titulo}`,
       mensaje: r.descripcion || '',
@@ -95,6 +95,10 @@ export async function processReminders() {
       recordatorio_id: r.id,
     }]);
 
-    console.log(`[Reminders] Disparado: "${r.titulo}" → notificación creada`);
+    if (notifErr) {
+      console.error(`[Reminders] Error creando notificación para "${r.titulo}":`, notifErr.message);
+    } else {
+      console.log(`[Reminders] Disparado: "${r.titulo}" → notificación creada`);
+    }
   }
 }

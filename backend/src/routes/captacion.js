@@ -598,9 +598,7 @@ router.get('/agent/installer', authMiddleware, async (req, res) => {
     keyData = created;
   }
 
-  const backendUrl = process.env.FRONTEND_URL
-    ? 'https://crm-pisalia-production.up.railway.app'
-    : 'https://crm-pisalia-production.up.railway.app';
+  const backendUrl = process.env.BACKEND_URL || 'https://crm-pisalia-production.up.railway.app';
 
   if (targetOs === 'windows') {
     // .bat con la clave embebida. Al doble clic lanza PowerShell que
@@ -818,7 +816,8 @@ router.post('/agent/result', agentAuthMiddleware, async (req, res) => {
           proveedor_id: (l.telefono && phoneToProveedor[l.telefono]) || null,
         }));
 
-        await supabase.from('captacion_leads').insert(enriched);
+        const { error: insertErr } = await supabase.from('captacion_leads').insert(enriched);
+        if (insertErr) console.error('[Captacion] Error insertando leads:', insertErr.message);
       }
     }
   }

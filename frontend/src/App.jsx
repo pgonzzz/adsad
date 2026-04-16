@@ -39,9 +39,9 @@ export default function App() {
           <Route path="propiedades/:id" element={<PropiedadDetalle />} />
           <Route path="matches" element={<Matches />} />
           <Route path="operaciones" element={<Operaciones />} />
-          <Route path="captacion" element={<Captacion />} />
-          <Route path="captacion/:campanaId" element={<Captacion />} />
           <Route path="captacion/leads/:leadId" element={<LeadDetalle />} />
+          <Route path="captacion/:campanaId" element={<Captacion />} />
+          <Route path="captacion" element={<Captacion />} />
           <Route path="calculadora" element={<Calculadora />} />
           <Route path="actividad" element={<AuditLog />} />
         </Route>
