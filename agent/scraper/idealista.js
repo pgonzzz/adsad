@@ -259,7 +259,39 @@ function buildPageUrl(baseUrl, pageNum) {
 
 async function extractPhone(page) {
   try {
-    // ── Estrategia 1: buscar por TEXTO del botón ("Ver teléfono") ─────────
+    // ── Interceptar la respuesta de red que contiene el teléfono ──────
+    // Cuando se clica "Ver teléfono", Idealista hace una petición AJAX
+    // (a /ajax/...phone... o similar) que devuelve el número. Interceptar
+    // esa respuesta es más fiable que buscar en el DOM.
+    let phoneFromNetwork = null;
+    const networkPromise = new Promise((resolve) => {
+      const timeout = setTimeout(() => resolve(null), 8000);
+      const handler = async (response) => {
+        try {
+          const url = response.url();
+          if (url.includes('phone') || url.includes('telefono') || url.includes('contact')) {
+            const text = await response.text().catch(() => '');
+            // Buscar teléfono en la respuesta (JSON o texto plano)
+            const re = /(?:\+?34[\s-]?)?([679]\d{2})[\s.-]?(\d{2,3})[\s.-]?(\d{2,3})/;
+            const m = text.match(re);
+            if (m) {
+              const clean = (m[1] + m[2] + m[3]).replace(/[\s.-]/g, '');
+              if (/^[679]\d{8}$/.test(clean)) {
+                phoneFromNetwork = clean;
+                clearTimeout(timeout);
+                page.off('response', handler);
+                resolve(clean);
+              }
+            }
+          }
+        } catch {}
+      };
+      page.on('response', handler);
+      // Limpiar listener después del timeout
+      setTimeout(() => { page.off('response', handler); }, 8500);
+    });
+
+    // ── Buscar y clicar el botón "Ver teléfono" ──────────────────────
     const clickedByText = await page.evaluate(() => {
       const candidates = document.querySelectorAll('button, a, [role="button"], span[role="button"], div[role="button"]');
       for (const c of candidates) {
@@ -279,97 +311,65 @@ async function extractPhone(page) {
 
     if (clickedByText) {
       console.log(`[Scraper]     Botón clicado: "${clickedByText}"`);
-      await sleep(2500, 4000);
+      // Esperar a que la respuesta de red llegue con el teléfono
+      const networkPhone = await networkPromise;
+      if (networkPhone) {
+        return networkPhone;
+      }
+      // Si la red no dio resultado, esperar un poco más y buscar en DOM
+      await sleep(1000, 2000);
     } else {
-      // ── Estrategia 2: selectores de clase (fallback) ──────────────────────
-      const btnSelectors = [
-        'button.contact-phone-button',
-        'button[class*="phone"]',
-        'a[class*="phone"]',
-        '.phone-btn',
-        '[data-testid="phone-button"]',
-        'span.icon-phone',
-        'a[href^="tel:"]',
-        '[class*="phone-button"]',
-        '[class*="ver-telefono"]',
-        '[class*="see-phone"]',
-      ];
-
-      let clicked = false;
-      for (const sel of btnSelectors) {
-        try {
-          const btn = await page.$(sel);
-          if (btn) {
-            await btn.click();
-            console.log(`[Scraper]     Botón clicado por selector: ${sel}`);
-            await sleep(1500, 2500);
-            clicked = true;
-            break;
-          }
-        } catch { /* ignorar */ }
+      // Sin botón — buscar tel: link directo
+      const directTel = await page.evaluate(() => {
+        const tel = document.querySelector('a[href^="tel:"]');
+        return tel ? tel.href.replace('tel:', '') : null;
+      });
+      if (directTel) {
+        const clean = directTel.replace(/[\s-+]/g, '').replace(/^34/, '');
+        if (/^[679]\d{8}$/.test(clean)) return clean;
       }
-
-      if (!clicked) {
-        // ── Estrategia 3: buscar un tel: link directamente (ya revelado) ──
-        const directTel = await page.evaluate(() => {
-          const tel = document.querySelector('a[href^="tel:"]');
-          return tel ? tel.href.replace('tel:', '') : null;
-        });
-        if (directTel) {
-          const clean = directTel.replace(/[\s-+]/g, '').replace(/^34/, '');
-          if (/^[679]\d{8}$/.test(clean)) {
-            console.log(`[Scraper]     Tel directo (ya revelado): ${clean}`);
-            return clean;
-          }
-        }
-        console.log('[Scraper]     No se encontró botón "Ver teléfono" ni tel: link');
-      }
+      console.log('[Scraper]     No se encontró botón "Ver teléfono"');
     }
 
-    // ── Buscar el número revelado (con reintentos) ─────────────────────
-    // Idealista a veces tarda en revelar el número tras el clic (anti-bot).
-    // Intentamos hasta 3 veces con esperas crecientes.
-    for (let attempt = 0; attempt < 3; attempt++) {
-      if (attempt > 0) {
-        await sleep(1500, 2500); // espera extra entre reintentos
-      }
+    // ── Fallback: buscar en DOM (por si el network no lo capturó) ─────
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (attempt > 0) await sleep(1500, 2500);
 
-      // 1. tel: links (más fiable)
-      const telPhone = await page.evaluate(() => {
+      const phone = await page.evaluate(() => {
+        // 1. tel: links
         const tels = document.querySelectorAll('a[href^="tel:"]');
         for (const tel of tels) {
           const num = tel.href.replace('tel:', '').replace(/[\s-+]/g, '').replace(/^34/, '');
           if (/^[679]\d{8}$/.test(num)) return num;
         }
-        return null;
-      });
-      if (telPhone) return telPhone;
-
-      // 2. Regex sobre texto en zonas de contacto
-      const phoneFromText = await page.evaluate(() => {
+        // 2. Texto en zonas de contacto
+        const re = /(?:\+?34[\s.-]?)?([679]\d{2})[\s.-]?(\d{2,3})[\s.-]?(\d{2,3})/;
         const zones = document.querySelectorAll(
-          '[class*="contact"], [class*="phone"], [class*="aside"], [class*="sidebar"], [class*="owner"]'
+          '[class*="contact"], [class*="phone"], [class*="aside"], [class*="sidebar"], [class*="owner"], [class*="detail-info"]'
         );
-        const re = /(?:\+?34[\s-]?)?([679]\d{2})[\s-]?(\d{2,3})[\s-]?(\d{2,3})/;
         for (const zone of zones) {
           const m = (zone.innerText || '').match(re);
           if (m) {
-            const clean = (m[1] + m[2] + m[3]).replace(/[\s-]/g, '');
+            const clean = (m[1] + m[2] + m[3]).replace(/[\s.-]/g, '');
             if (/^[679]\d{8}$/.test(clean)) return clean;
           }
         }
-        const fullMatch = (document.body.innerText || '').match(re);
-        if (fullMatch) {
-          const clean = (fullMatch[1] + fullMatch[2] + fullMatch[3]).replace(/[\s-]/g, '');
-          if (/^[679]\d{8}$/.test(clean)) return clean;
+        // 3. Botón que ahora muestra el número (reemplazó "Ver teléfono")
+        const buttons = document.querySelectorAll('button, a, [role="button"]');
+        for (const btn of buttons) {
+          const txt = (btn.innerText || btn.textContent || '').trim();
+          const m = txt.match(re);
+          if (m) {
+            const clean = (m[1] + m[2] + m[3]).replace(/[\s.-]/g, '');
+            if (/^[679]\d{8}$/.test(clean)) return clean;
+          }
         }
         return null;
       });
-      if (phoneFromText) return phoneFromText;
+      if (phone) return phone;
     }
 
     return null;
-
   } catch (err) {
     console.warn('[Scraper] Error extrayendo teléfono:', err.message);
     return null;
