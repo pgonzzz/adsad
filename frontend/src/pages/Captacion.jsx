@@ -1293,6 +1293,74 @@ function LeadsTable({ leads, showCampana = false, onEditLead, onDeleteLead, onRe
   const [convertirLead, setConvertirLead] = useState(null);
   const [enviosModal, setEnviosModal] = useState(null); // lead del que mostrar envíos
 
+  // Selección múltiple para acciones en bloque
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [bulkEstadoOpen, setBulkEstadoOpen] = useState(false);
+  const [bulkLoading, setBulkLoading] = useState(false);
+  const toggleSelect = (id) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const toggleSelectAllFiltered = () => {
+    const allIds = filtered.map(l => l.id);
+    const allSelected = allIds.every(id => selectedIds.has(id));
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (allSelected) {
+        allIds.forEach(id => next.delete(id));
+      } else {
+        allIds.forEach(id => next.add(id));
+      }
+      return next;
+    });
+  };
+  const clearSelection = () => setSelectedIds(new Set());
+
+  const handleBulkDelete = async () => {
+    if (!confirm(`¿Eliminar ${selectedIds.size} leads seleccionados? Esta acción no se puede deshacer.`)) return;
+    setBulkLoading(true);
+    try {
+      await Promise.all([...selectedIds].map(id => captacionApi.deleteLead(id)));
+      clearSelection();
+      if (onRefresh) onRefresh();
+    } catch (err) {
+      alert('Error eliminando: ' + err.message);
+    }
+    setBulkLoading(false);
+  };
+
+  const handleBulkSetEstado = async (nuevoEstado) => {
+    setBulkLoading(true);
+    try {
+      const ids = [...selectedIds];
+      await Promise.all(ids.map(id => captacionApi.updateLead(id, {
+        estado: nuevoEstado,
+        ultimo_contacto: nuevoEstado === 'enviado' ? new Date().toISOString() : null,
+      })));
+      // Actualización optimista
+      if (onLeadUpdated) {
+        ids.forEach(id => {
+          const lead = leads.find(l => l.id === id);
+          if (lead) {
+            onLeadUpdated({
+              ...lead,
+              estado: nuevoEstado,
+              ultimo_contacto: nuevoEstado === 'enviado' ? new Date().toISOString() : null,
+            });
+          }
+        });
+      }
+      clearSelection();
+      setBulkEstadoOpen(false);
+    } catch (err) {
+      alert('Error actualizando: ' + err.message);
+    }
+    setBulkLoading(false);
+  };
+
   const filtered = leads.filter(l => {
     if (filterEstado && l.estado !== filterEstado) return false;
     if (filterTipoTel && tipoTelefono(l.telefono) !== filterTipoTel) return false;
@@ -1427,10 +1495,79 @@ function LeadsTable({ leads, showCampana = false, onEditLead, onDeleteLead, onRe
           {leads.length === 0 ? 'No hay leads aún. Inicia un scraping para obtener leads.' : 'No hay leads con este estado.'}
         </div>
       ) : (
+        <>
+        {/* Barra de acciones en bloque (aparece cuando hay selección) */}
+        {selectedIds.size > 0 && (
+          <div className="flex items-center gap-3 mb-3 p-3 bg-blue-50 border border-blue-200 rounded-lg flex-wrap">
+            <span className="text-sm font-medium text-blue-700">
+              {selectedIds.size} seleccionado{selectedIds.size > 1 ? 's' : ''}
+            </span>
+            <div className="flex-1" />
+            <div className="relative">
+              <button
+                onClick={() => setBulkEstadoOpen(v => !v)}
+                disabled={bulkLoading}
+                className="px-3 py-1.5 text-xs font-medium border border-gray-300 bg-white rounded-lg hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cambiar estado ▾
+              </button>
+              {bulkEstadoOpen && (
+                <div className="absolute top-full right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-20 min-w-[180px]">
+                  {Object.entries(ESTADO_LEAD_LABELS).map(([k, v]) => (
+                    <button
+                      key={k}
+                      onClick={() => handleBulkSetEstado(k)}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 first:rounded-t-lg last:rounded-b-lg"
+                    >
+                      {v}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <button
+              onClick={() => handleBulkSetEstado('enviado')}
+              disabled={bulkLoading}
+              className="px-3 py-1.5 text-xs font-medium border border-gray-300 bg-white rounded-lg hover:bg-gray-50 disabled:opacity-50"
+            >
+              Marcar WA enviado
+            </button>
+            <button
+              onClick={() => handleBulkSetEstado('nuevo')}
+              disabled={bulkLoading}
+              className="px-3 py-1.5 text-xs font-medium border border-gray-300 bg-white rounded-lg hover:bg-gray-50 disabled:opacity-50"
+            >
+              Marcar WA no enviado
+            </button>
+            <button
+              onClick={handleBulkDelete}
+              disabled={bulkLoading}
+              className="px-3 py-1.5 text-xs font-medium bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50"
+            >
+              Eliminar
+            </button>
+            <button
+              onClick={clearSelection}
+              className="text-xs text-gray-500 hover:text-gray-700"
+            >
+              Cancelar
+            </button>
+          </div>
+        )}
+
         <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
           <table className="w-full text-sm min-w-[900px]">
             <thead>
               <tr className="text-left text-xs text-gray-500 uppercase tracking-wide border-b border-gray-200">
+                <th className="pb-2 pr-2 w-8">
+                  <input
+                    type="checkbox"
+                    checked={filtered.length > 0 && filtered.every(l => selectedIds.has(l.id))}
+                    onChange={toggleSelectAllFiltered}
+                    className="w-4 h-4 cursor-pointer"
+                    title="Seleccionar todos los filtrados"
+                  />
+                </th>
                 <th className="pb-2 pr-3 font-medium">Vendedor</th>
                 <th className="pb-2 pr-3 font-medium">Teléfono</th>
                 <th className="pb-2 pr-3 font-medium">Inmueble</th>
@@ -1445,7 +1582,16 @@ function LeadsTable({ leads, showCampana = false, onEditLead, onDeleteLead, onRe
             </thead>
             <tbody>
               {filtered.map(lead => (
-                <tr key={lead.id} className="border-b border-gray-100 hover:bg-gray-50 transition-colors">
+                <tr key={lead.id} className={`border-b border-gray-100 transition-colors ${selectedIds.has(lead.id) ? 'bg-blue-50' : 'hover:bg-gray-50'}`}>
+                  <td className="py-2 pr-2">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(lead.id)}
+                      onChange={() => toggleSelect(lead.id)}
+                      onClick={e => e.stopPropagation()}
+                      className="w-4 h-4 cursor-pointer"
+                    />
+                  </td>
                   <td className="py-2 pr-3 font-medium text-gray-800">
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <span>{lead.nombre_vendedor || '—'}</span>
@@ -1586,6 +1732,7 @@ function LeadsTable({ leads, showCampana = false, onEditLead, onDeleteLead, onRe
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       {convertirLead && (
