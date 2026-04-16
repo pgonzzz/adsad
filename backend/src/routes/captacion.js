@@ -162,6 +162,37 @@ router.get('/leads', authMiddleware, async (req, res) => {
   res.json(data);
 });
 
+// GET /captacion/leads/:id — ficha de un lead con envíos y recordatorios
+router.get('/leads/:id', authMiddleware, async (req, res) => {
+  const { data: lead, error } = await supabase
+    .from('captacion_leads')
+    .select('*, captacion_campanas!inner(nombre, portal, user_id)')
+    .eq('id', req.params.id)
+    .single();
+  if (error || !lead) return res.status(404).json({ error: 'Lead no encontrado' });
+  if (lead.captacion_campanas?.user_id !== req.user.id) {
+    return res.status(403).json({ error: 'No tienes acceso a este lead' });
+  }
+
+  // Envíos de WhatsApp
+  const { data: envios } = await supabase
+    .from('captacion_envios')
+    .select('*')
+    .eq('lead_id', req.params.id)
+    .order('created_at', { ascending: false });
+
+  // Recordatorios asociados
+  const { data: recordatorios } = await supabase
+    .from('recordatorios')
+    .select('*')
+    .eq('entidad', 'lead')
+    .eq('entidad_id', req.params.id)
+    .eq('user_id', req.user.id)
+    .order('fecha_hora', { ascending: true });
+
+  res.json({ ...lead, envios: envios || [], recordatorios: recordatorios || [] });
+});
+
 // POST /captacion/leads — crear lead (manual, desde el frontend)
 router.post('/leads', authMiddleware, async (req, res) => {
   // Verificar que la campaña pertenece al usuario

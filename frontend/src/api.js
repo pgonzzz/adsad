@@ -68,6 +68,20 @@ export const dashboardApi = {
   getStats: () => get('/dashboard/stats'),
 };
 
+export const recordatoriosApi = {
+  getAll: (params) => get('/recordatorios', params),
+  create: (data) => post('/recordatorios', data),
+  update: (id, data) => put(`/recordatorios/${id}`, data),
+  delete: (id) => del(`/recordatorios/${id}`),
+};
+
+export const notificacionesApi = {
+  getAll: (params) => get('/notificaciones', params),
+  getNoLeidas: () => get('/notificaciones/no-leidas'),
+  marcarLeida: (id) => put(`/notificaciones/${id}/leer`, {}),
+  marcarTodasLeidas: () => put('/notificaciones/leer-todas', {}),
+};
+
 export const activityLogApi = {
   getAll: (params) => get('/activity-log', params),
 };
@@ -91,6 +105,7 @@ export const captacionApi = {
   updateCampana: (id, data) => put(`/captacion/campanas/${id}`, data),
   deleteCampana: (id) => del(`/captacion/campanas/${id}`),
   getLeads: (params) => get('/captacion/leads', params),
+  getLeadById: (id) => get(`/captacion/leads/${id}`),
   updateLead: (id, data) => put(`/captacion/leads/${id}`, data),
   deleteLead: (id) => del(`/captacion/leads/${id}`),
   getAgentStatus: () => get('/captacion/agent/status'),

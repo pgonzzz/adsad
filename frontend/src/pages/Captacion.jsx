@@ -1594,7 +1594,7 @@ function LeadsTable({ leads, showCampana = false, onEditLead, onDeleteLead, onRe
                   </td>
                   <td className="py-2 pr-3 font-medium text-gray-800">
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <span>{lead.nombre_vendedor || '—'}</span>
+                      <a href={`/captacion/leads/${lead.id}`} className="text-blue-600 hover:underline">{lead.nombre_vendedor || '—'}</a>
                       {lead.es_particular === false &&
                        !(lead.nombre_vendedor || '').toLowerCase().startsWith('particular') && (
                         <span className="text-xs text-gray-400">(agencia)</span>
