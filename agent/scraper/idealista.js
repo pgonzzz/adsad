@@ -272,15 +272,18 @@ async function extractPhone(page) {
           if (url.includes('phone') || url.includes('telefono') || url.includes('contact')) {
             const text = await response.text().catch(() => '');
             // Buscar teléfono en la respuesta (JSON o texto plano)
-            const re = /(?:\+?34[\s-]?)?(\d{3})[\s.-]?(\d{2,3})[\s.-]?(\d{2,3})/;
-            const m = text.match(re);
-            if (m) {
-              const clean = (m[1] + m[2] + m[3]).replace(/[\s.-]/g, '');
-              if (/^\d{9}$/.test(clean)) {
-                phoneFromNetwork = clean;
-                clearTimeout(timeout);
-                page.off('response', handler);
-                resolve(clean);
+            const re = /(?:\+?34[\s.-]?)?\d[\d\s.-]{7,14}\d/g;
+            const matches = text.match(re);
+            if (matches) {
+              for (const raw of matches) {
+                const clean = raw.replace(/[\s.+\-]/g, '').replace(/^34/, '');
+                if (/^\d{9}$/.test(clean)) {
+                  phoneFromNetwork = clean;
+                  clearTimeout(timeout);
+                  page.off('response', handler);
+                  resolve(clean);
+                  break;
+                }
               }
             }
           }
@@ -361,33 +364,38 @@ async function extractPhone(page) {
       if (attempt > 0) await sleep(1500, 2500);
 
       const phone = await page.evaluate(() => {
+        // Helper: extraer un teléfono de 9 dígitos de un string
+        function findPhone(text) {
+          // Buscar secuencias de dígitos con separadores que sumen 9 dígitos
+          const re = /(?:\+?34[\s.-]?)?\d[\d\s.-]{7,14}\d/g;
+          const matches = text.match(re);
+          if (!matches) return null;
+          for (const raw of matches) {
+            const clean = raw.replace(/[\s.+\-]/g, '').replace(/^34/, '');
+            if (/^\d{9}$/.test(clean)) return clean;
+          }
+          return null;
+        }
+
         // 1. tel: links
         const tels = document.querySelectorAll('a[href^="tel:"]');
         for (const tel of tels) {
           const num = tel.href.replace('tel:', '').replace(/[\s-+]/g, '').replace(/^34/, '');
-          if (/^[679]\d{8}$/.test(num)) return num;
+          if (/^\d{9}$/.test(num)) return num;
         }
         // 2. Texto en zonas de contacto
-        const re = /(?:\+?34[\s.-]?)?(\d{3})[\s.-]?(\d{2,3})[\s.-]?(\d{2,3})/;
         const zones = document.querySelectorAll(
           '[class*="contact"], [class*="phone"], [class*="aside"], [class*="sidebar"], [class*="owner"], [class*="detail-info"]'
         );
         for (const zone of zones) {
-          const m = (zone.innerText || '').match(re);
-          if (m) {
-            const clean = (m[1] + m[2] + m[3]).replace(/[\s.-]/g, '');
-            if (/^\d{9}$/.test(clean)) return clean;
-          }
+          const found = findPhone(zone.innerText || '');
+          if (found) return found;
         }
-        // 3. Botón que ahora muestra el número (reemplazó "Ver teléfono")
+        // 3. Botón que ahora muestra el número
         const buttons = document.querySelectorAll('button, a, [role="button"]');
         for (const btn of buttons) {
-          const txt = (btn.innerText || btn.textContent || '').trim();
-          const m = txt.match(re);
-          if (m) {
-            const clean = (m[1] + m[2] + m[3]).replace(/[\s.-]/g, '');
-            if (/^\d{9}$/.test(clean)) return clean;
-          }
+          const found = findPhone((btn.innerText || btn.textContent || '').trim());
+          if (found) return found;
         }
         return null;
       });
