@@ -272,11 +272,11 @@ async function extractPhone(page) {
           if (url.includes('phone') || url.includes('telefono') || url.includes('contact')) {
             const text = await response.text().catch(() => '');
             // Buscar teléfono en la respuesta (JSON o texto plano)
-            const re = /(?:\+?34[\s-]?)?([679]\d{2})[\s.-]?(\d{2,3})[\s.-]?(\d{2,3})/;
+            const re = /(?:\+?34[\s-]?)?(\d{3})[\s.-]?(\d{2,3})[\s.-]?(\d{2,3})/;
             const m = text.match(re);
             if (m) {
               const clean = (m[1] + m[2] + m[3]).replace(/[\s.-]/g, '');
-              if (/^[679]\d{8}$/.test(clean)) {
+              if (/^\d{9}$/.test(clean)) {
                 phoneFromNetwork = clean;
                 clearTimeout(timeout);
                 page.off('response', handler);
@@ -317,7 +317,32 @@ async function extractPhone(page) {
         return networkPhone;
       }
       // Si la red no dio resultado, esperar un poco más y buscar en DOM
-      await sleep(1000, 2000);
+      await sleep(2000, 3000);
+
+      // DEBUG: capturar qué muestra la zona de contacto después del clic
+      const debugInfo = await page.evaluate(() => {
+        const zones = document.querySelectorAll(
+          '[class*="contact"], [class*="phone"], [class*="owner-info"], [class*="professional-name"], aside'
+        );
+        const texts = [];
+        for (const z of zones) {
+          const t = (z.innerText || '').trim().slice(0, 200);
+          if (t) texts.push(t);
+        }
+        // También buscar el botón que clicamos — ¿cambió su texto?
+        const buttons = document.querySelectorAll('button, a, [role="button"]');
+        for (const b of buttons) {
+          const t = (b.innerText || '').trim();
+          if (/\d{3}/.test(t)) texts.push('BTN: ' + t.slice(0, 60));
+        }
+        // Buscar CUALQUIER a[href^=tel:]
+        const tels = document.querySelectorAll('a[href^="tel:"]');
+        for (const t of tels) texts.push('TEL: ' + t.href);
+        return texts.slice(0, 5);
+      });
+      if (debugInfo.length > 0) {
+        console.log(`[Scraper]     Debug DOM: ${JSON.stringify(debugInfo)}`);
+      }
     } else {
       // Sin botón — buscar tel: link directo
       const directTel = await page.evaluate(() => {
@@ -326,7 +351,7 @@ async function extractPhone(page) {
       });
       if (directTel) {
         const clean = directTel.replace(/[\s-+]/g, '').replace(/^34/, '');
-        if (/^[679]\d{8}$/.test(clean)) return clean;
+        if (/^\d{9}$/.test(clean)) return clean;
       }
       console.log('[Scraper]     No se encontró botón "Ver teléfono"');
     }
@@ -343,7 +368,7 @@ async function extractPhone(page) {
           if (/^[679]\d{8}$/.test(num)) return num;
         }
         // 2. Texto en zonas de contacto
-        const re = /(?:\+?34[\s.-]?)?([679]\d{2})[\s.-]?(\d{2,3})[\s.-]?(\d{2,3})/;
+        const re = /(?:\+?34[\s.-]?)?(\d{3})[\s.-]?(\d{2,3})[\s.-]?(\d{2,3})/;
         const zones = document.querySelectorAll(
           '[class*="contact"], [class*="phone"], [class*="aside"], [class*="sidebar"], [class*="owner"], [class*="detail-info"]'
         );
@@ -351,7 +376,7 @@ async function extractPhone(page) {
           const m = (zone.innerText || '').match(re);
           if (m) {
             const clean = (m[1] + m[2] + m[3]).replace(/[\s.-]/g, '');
-            if (/^[679]\d{8}$/.test(clean)) return clean;
+            if (/^\d{9}$/.test(clean)) return clean;
           }
         }
         // 3. Botón que ahora muestra el número (reemplazó "Ver teléfono")
@@ -361,7 +386,7 @@ async function extractPhone(page) {
           const m = txt.match(re);
           if (m) {
             const clean = (m[1] + m[2] + m[3]).replace(/[\s.-]/g, '');
-            if (/^[679]\d{8}$/.test(clean)) return clean;
+            if (/^\d{9}$/.test(clean)) return clean;
           }
         }
         return null;
