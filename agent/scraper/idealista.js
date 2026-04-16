@@ -739,12 +739,35 @@ async function scrapeIdealista(params, onLead, shouldAbort) {
           const precioText = priceEl ? (priceEl.textContent || '').trim() : '';
           const precio = parseInt(precioText.replace(/[^\d]/g, ''), 10) || null;
 
-          const logoImg = el.querySelector('picture[class*="logo"] img, [class*="logo-branding"] img, [class*="branding"] img, img[class*="logo"]');
+          // Vendedor: buscar el logo/nombre de la agencia, pero filtrar alt-texts
+          // genéricos que NO son el nombre del vendedor (fotos, miniaturas, etc.)
+          const NOMBRE_VENDEDOR_BASURA = [
+            'primera foto', 'foto principal', 'foto del inmueble', 'foto anuncio',
+            'imagen', 'picture', 'photo', 'logo', 'logotipo',
+            'salón', 'salon', 'cocina', 'dormitorio', 'habitación', 'habitacion',
+            'baño', 'bano', 'terraza', 'balcón', 'balcon', 'fachada', 'vista',
+            'plano', 'planos', 'exterior', 'interior', 'pasillo', 'entrada',
+          ];
+          const esNombreValido = (s) => {
+            if (!s) return false;
+            const low = s.toLowerCase().trim();
+            if (low.length < 3 || low.length > 80) return false;
+            return !NOMBRE_VENDEDOR_BASURA.some(b => low.includes(b));
+          };
+
+          // Solo logos dentro de secciones de branding/advertiser, NO imgs de galería
+          const logoImg = el.querySelector(
+            '[class*="logo-branding"] img, [class*="branding-name"] img, ' +
+            'a[href*="/agencias/"] img, a[href*="/pro/"] img, picture.logo img'
+          );
           const nombreLogo = logoImg ? (logoImg.alt || '').trim() : '';
-          const nameEl = el.querySelector('[class*="advertiser"], [class*="professional"], [class*="branding-name"], .item-branding');
+          const nameEl = el.querySelector('[class*="advertiser"], [class*="professional"], [class*="branding-name"], .item-branding, a[href*="/agencias/"]');
           const nombreTexto = nameEl ? (nameEl.innerText || '').trim() : '';
-          const nombre_vendedor = (nombreLogo || nombreTexto || '').trim() || null;
-          const hasBranding = !!(logoImg || el.querySelector('[class*="branding"], [class*="professional"], [class*="agency"]'));
+          const candidato = esNombreValido(nombreLogo) ? nombreLogo
+            : esNombreValido(nombreTexto) ? nombreTexto
+            : null;
+          const nombre_vendedor = candidato;
+          const hasBranding = !!(logoImg || nameEl);
 
           out.push({
             url: href,
@@ -804,15 +827,20 @@ async function scrapeIdealista(params, onLead, shouldAbort) {
 
           // Características del piso
           caracteristicas = await extractCaracteristicas(detailPage);
+          const numCar = caracteristicas ? Object.keys(caracteristicas).length : 0;
+          if (numCar === 0) {
+            console.warn(`[Scraper]   ⚠ características vacías en ${ld.url}`);
+          }
 
-          // Vendedor de la ficha si no lo teníamos del listado (particulares)
-          if (!nombre_vendedor) {
-            const sellerDetail = await extractSellerInfo(detailPage);
+          // SIEMPRE intentar sacar el vendedor de la ficha — el del listado
+          // puede ser basura (alt-text de imágenes, "Primera foto...", etc.)
+          const sellerDetail = await extractSellerInfo(detailPage);
+          if (sellerDetail.nombre_vendedor) {
             nombre_vendedor = sellerDetail.nombre_vendedor;
             es_particular = sellerDetail.es_particular;
           }
         } catch (err) {
-          console.warn('[Scraper] Error extrayendo detalles:', err.message);
+          console.warn(`[Scraper] Error extrayendo detalles de ${ld.url}:`, err.message);
         } finally {
           if (detailPage) {
             try { await detailPage.close(); } catch {}
