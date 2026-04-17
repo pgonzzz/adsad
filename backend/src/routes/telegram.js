@@ -326,6 +326,282 @@ router.get('/published-ids', async (req, res) => {
   res.json(ids);
 });
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// TELEGRAM BOT WEBHOOK — Asistente IA vía mensajes privados al bot
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// IDs de chat autorizados (se configura con TELEGRAM_ADMIN_CHATS=id1,id2)
+const ADMIN_CHATS = () => (process.env.TELEGRAM_ADMIN_CHATS || '').split(',').filter(Boolean);
+
+const ASSISTANT_SYSTEM = `Eres el asistente de Pisalia CRM, un CRM inmobiliario.
+Ayudas a gestionar campañas de captación, leads, propiedades e inversores.
+
+Tienes acceso a estas FUNCIONES (devuelve JSON con "action" para ejecutarlas):
+
+1. {"action":"list_campanas"} — Listar campañas de captación
+2. {"action":"create_campana","nombre":"...","poblacion":"...","provincia":"...","url_inicial":"...","tipo":"piso","max_paginas":2} — Crear campaña
+3. {"action":"start_scrape","campana_id":"..."} — Iniciar scraping de una campaña (necesita el ID)
+4. {"action":"list_leads","campana_id":"...","estado":"nuevo"} — Listar leads (filtros opcionales)
+5. {"action":"stats"} — Estadísticas generales del CRM
+6. {"action":"send_wa","campana_id":"..."} — Enviar WhatsApp a leads nuevos de una campaña
+7. {"action":"list_propiedades"} — Listar propiedades en cartera
+
+REGLAS:
+- Si el usuario dice algo como "scrapea Valladolid pisos hasta 100k", crea la campaña Y lanza el scraping.
+- Si pide stats o resumen, devuelve la acción stats.
+- Si no es una acción del CRM (saludo, pregunta general), responde normalmente SIN JSON.
+- Cuando devuelvas JSON, devuelve SOLO el JSON, sin texto antes ni después.
+- Si necesitas más información para ejecutar (ej: no sabes qué campaña), pregunta al usuario.
+- Responde siempre en español, breve y directo.`;
+
+async function handleBotMessage(chatId, text) {
+  // Verificar que el chat está autorizado
+  const admins = ADMIN_CHATS();
+  if (admins.length > 0 && !admins.includes(String(chatId))) {
+    await tgApi('sendMessage', { chat_id: chatId, text: '❌ No tienes autorización para usar este bot.' });
+    return;
+  }
+
+  try {
+    // ── Comandos slash (gratis, sin IA) ────────────────────────────
+    if (text.startsWith('/')) {
+      const result = await handleSlashCommand(text);
+      await tgApi('sendMessage', { chat_id: chatId, text: result, parse_mode: 'HTML' });
+      return;
+    }
+
+    // ── Lenguaje natural (GPT-4o-mini) ─────────────────────────────
+    const aiResponse = await callGPT4oMini(text);
+
+    // Intentar parsear como acción JSON
+    let action = null;
+    try {
+      const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
+      if (jsonMatch) action = JSON.parse(jsonMatch[0]);
+    } catch {}
+
+    if (action?.action) {
+      const result = await executeAction(action);
+      await tgApi('sendMessage', { chat_id: chatId, text: result, parse_mode: 'HTML' });
+    } else {
+      // Respuesta conversacional (sin acción)
+      await tgApi('sendMessage', { chat_id: chatId, text: aiResponse });
+    }
+  } catch (err) {
+    console.error('[TgBot] Error:', err.message);
+    await tgApi('sendMessage', { chat_id: chatId, text: `❌ Error: ${err.message}` });
+  }
+}
+
+async function callGPT4oMini(userMessage) {
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPENAI_KEY()}` },
+    body: JSON.stringify({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: ASSISTANT_SYSTEM },
+        { role: 'user', content: userMessage },
+      ],
+      max_tokens: 500,
+    }),
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error.message);
+  return data.choices[0].message.content;
+}
+
+// ── Comandos slash ───────────────────────────────────────────────────────────
+
+async function handleSlashCommand(text) {
+  const [cmd, ...args] = text.trim().split(/\s+/);
+  const arg = args.join(' ');
+
+  switch (cmd) {
+    case '/start':
+    case '/help':
+      return `🏠 <b>Pisalia CRM Bot</b>\n\n` +
+        `Comandos disponibles:\n` +
+        `/campanas — Listar campañas\n` +
+        `/leads [campaña] — Ver leads\n` +
+        `/stats — Estadísticas\n` +
+        `/propiedades — Propiedades en cartera\n\n` +
+        `O escribe en lenguaje natural:\n` +
+        `"Scrapea Valladolid pisos hasta 100k"\n` +
+        `"Cuántos leads nuevos tengo?"\n` +
+        `"Envía WhatsApp a los de Ciudad Real"`;
+
+    case '/campanas': {
+      const { data } = await supabase.from('captacion_campanas').select('id, nombre, estado, poblacion, provincia').order('created_at', { ascending: false }).limit(10);
+      if (!data?.length) return '📭 No hay campañas.';
+      return `📋 <b>Campañas</b>\n\n` + data.map((c, i) =>
+        `${i+1}. <b>${c.nombre}</b> · ${c.poblacion || c.provincia || '—'} · ${c.estado}`
+      ).join('\n');
+    }
+
+    case '/leads': {
+      let query = supabase.from('captacion_leads').select('id, nombre_vendedor, telefono, estado, precio, poblacion', { count: 'exact' });
+      if (arg) query = query.ilike('poblacion', `%${arg}%`);
+      query = query.order('created_at', { ascending: false }).limit(10);
+      const { data, count } = await query;
+      if (!data?.length) return '📭 No hay leads' + (arg ? ` en "${arg}"` : '') + '.';
+      return `👥 <b>Leads</b> (${count} total${arg ? `, filtro: ${arg}` : ''})\n\n` + data.map((l, i) =>
+        `${i+1}. ${l.nombre_vendedor || '—'} · ${l.telefono || 'sin tel'} · ${l.precio ? l.precio.toLocaleString('es-ES') + '€' : '—'} · ${l.estado}`
+      ).join('\n');
+    }
+
+    case '/stats': {
+      const [campanas, leads, propiedades, inversores] = await Promise.all([
+        supabase.from('captacion_campanas').select('id', { count: 'exact', head: true }),
+        supabase.from('captacion_leads').select('id, estado'),
+        supabase.from('propiedades').select('id', { count: 'exact', head: true }),
+        supabase.from('inversores').select('id', { count: 'exact', head: true }),
+      ]);
+      const leadsData = leads.data || [];
+      const nuevo = leadsData.filter(l => l.estado === 'nuevo').length;
+      const enviado = leadsData.filter(l => l.estado === 'enviado').length;
+      const respondido = leadsData.filter(l => l.estado === 'respondido').length;
+      return `📊 <b>Estadísticas Pisalia</b>\n\n` +
+        `📋 Campañas: ${campanas.count || 0}\n` +
+        `👥 Leads: ${leadsData.length} (${nuevo} nuevos, ${enviado} enviados, ${respondido} respondidos)\n` +
+        `🏠 Propiedades: ${propiedades.count || 0}\n` +
+        `💼 Inversores: ${inversores.count || 0}`;
+    }
+
+    case '/propiedades': {
+      const { data } = await supabase.from('propiedades').select('id, tipo, poblacion, provincia, precio, estado').order('created_at', { ascending: false }).limit(10);
+      if (!data?.length) return '📭 No hay propiedades.';
+      return `🏠 <b>Propiedades</b>\n\n` + data.map((p, i) =>
+        `${i+1}. ${p.tipo} · ${p.poblacion || p.provincia || '—'} · ${p.precio ? p.precio.toLocaleString('es-ES') + '€' : '—'} · ${p.estado}`
+      ).join('\n');
+    }
+
+    default:
+      return `❓ Comando desconocido. Escribe /help para ver los disponibles.`;
+  }
+}
+
+// ── Ejecutar acción del asistente IA ─────────────────────────────────────────
+
+async function executeAction(action) {
+  switch (action.action) {
+    case 'list_campanas':
+      return handleSlashCommand('/campanas');
+
+    case 'list_leads':
+      return handleSlashCommand('/leads ' + (action.poblacion || ''));
+
+    case 'stats':
+      return handleSlashCommand('/stats');
+
+    case 'list_propiedades':
+      return handleSlashCommand('/propiedades');
+
+    case 'create_campana': {
+      const { data, error } = await supabase.from('captacion_campanas').insert([{
+        nombre: action.nombre || `Campaña ${action.poblacion || 'nueva'}`,
+        portal: 'idealista',
+        poblacion: action.poblacion || '',
+        provincia: action.provincia || '',
+        tipo: action.tipo || 'piso',
+        url_inicial: action.url_inicial || '',
+        max_paginas: action.max_paginas || 2,
+        estado: 'activa',
+        plantilla_mensaje: 'Hola {{nombre}}, te contacto en relación a tu anuncio de {{tipo}} en {{poblacion}} por {{precio}}. ¿Sigues teniendo disponible el inmueble?',
+      }]).select().single();
+      if (error) return `❌ Error creando campaña: ${error.message}`;
+      return `✅ Campaña "<b>${data.nombre}</b>" creada.\n\nID: <code>${data.id}</code>\n\n💡 Para iniciar scraping, escribe:\n"Scrapea la campaña de ${action.poblacion || data.nombre}"`;
+    }
+
+    case 'start_scrape': {
+      if (!action.campana_id) {
+        // Intentar buscar por nombre/poblacion
+        const { data: campanas } = await supabase.from('captacion_campanas').select('id, nombre, url_inicial, poblacion, provincia, tipo, max_paginas').eq('estado', 'activa').order('created_at', { ascending: false }).limit(5);
+        if (!campanas?.length) return '❌ No hay campañas activas.';
+        if (campanas.length === 1) {
+          action.campana_id = campanas[0].id;
+        } else {
+          return `🔍 ¿Cuál campaña?\n\n` + campanas.map((c, i) =>
+            `${i+1}. ${c.nombre} (${c.poblacion || '—'})`
+          ).join('\n') + `\n\nEscribe el nombre de la campaña que quieres scrapear.`;
+        }
+      }
+      const { data: campana } = await supabase.from('captacion_campanas').select('*').eq('id', action.campana_id).single();
+      if (!campana) return '❌ Campaña no encontrada.';
+      const { error } = await supabase.from('captacion_tareas').insert([{
+        tipo: 'scrape',
+        estado: 'pendiente',
+        payload: {
+          campana_id: campana.id,
+          url_inicial: campana.url_inicial || null,
+          poblacion: campana.poblacion,
+          provincia: campana.provincia,
+          tipo: campana.tipo,
+          max_paginas: campana.max_paginas || 2,
+        },
+      }]);
+      if (error) return `❌ Error: ${error.message}`;
+      return `🚀 Scraping iniciado para "<b>${campana.nombre}</b>".\n\nEl agente lo ejecutará en breve. Te avisaré cuando termine.`;
+    }
+
+    case 'send_wa': {
+      if (!action.campana_id) return '❌ Necesito el ID de la campaña. Escribe /campanas para verlas.';
+      const { data: leads } = await supabase.from('captacion_leads').select('*').eq('campana_id', action.campana_id).eq('estado', 'nuevo');
+      const moviles = (leads || []).filter(l => l.telefono && /^[67]/.test(l.telefono.replace(/[\s-+]/g, '').replace(/^34/, '')));
+      if (moviles.length === 0) return '📭 No hay leads nuevos con móvil en esta campaña.';
+      const { data: campana } = await supabase.from('captacion_campanas').select('plantilla_mensaje').eq('id', action.campana_id).single();
+      const { error } = await supabase.from('captacion_tareas').insert([{
+        tipo: 'whatsapp_send',
+        estado: 'pendiente',
+        payload: {
+          campana_id: action.campana_id,
+          leads: moviles,
+          plantilla_mensaje: campana?.plantilla_mensaje || 'Hola {{nombre}}, te contacto por tu anuncio de {{tipo}} en {{poblacion}}.',
+        },
+      }]);
+      if (error) return `❌ Error: ${error.message}`;
+      return `📱 Envío de WhatsApp programado para <b>${moviles.length} leads</b>.\n\nEl agente empezará a enviar en breve (dentro del horario 8:00-20:00).`;
+    }
+
+    default:
+      return `❓ Acción "${action.action}" no reconocida.`;
+  }
+}
+
+// ── Webhook endpoint (Telegram envía mensajes aquí) ──────────────────────────
+
+router.post('/webhook', async (req, res) => {
+  // Responder 200 inmediatamente (Telegram lo requiere)
+  res.status(200).json({ ok: true });
+
+  const msg = req.body?.message;
+  if (!msg?.text || !msg?.chat?.id) return;
+
+  const chatId = msg.chat.id;
+  const text = msg.text.trim();
+
+  console.log(`[TgBot] Mensaje de ${msg.from?.first_name || chatId}: "${text.slice(0, 60)}"`);
+
+  // Procesar en background
+  handleBotMessage(chatId, text).catch(err => {
+    console.error('[TgBot] Error procesando mensaje:', err.message);
+  });
+});
+
+// ── Endpoint para registrar el webhook en Telegram ───────────────────────────
+
+router.get('/setup-webhook', async (req, res) => {
+  const backendUrl = process.env.BACKEND_URL || 'https://crm-pisalia-production.up.railway.app';
+  const webhookUrl = `${backendUrl}/api/telegram/webhook`;
+  try {
+    const result = await tgApi('setWebhook', { url: webhookUrl });
+    console.log('[TgBot] Webhook registrado:', webhookUrl);
+    res.json({ ok: true, webhook_url: webhookUrl, result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;
 
 // ─── Scheduler para posts programados ─────────────────────────────────────────

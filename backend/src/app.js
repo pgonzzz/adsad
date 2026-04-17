@@ -41,6 +41,11 @@ app.use(express.json({ limit: '15mb' }));
 // Health check (sin auth)
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
+// Telegram: webhook y setup sin auth (Telegram no envía Bearer token)
+// Las demás rutas de telegram (posts, config, etc.) van con auth más abajo.
+app.use('/api/telegram/webhook', telegramRouter);
+app.use('/api/telegram/setup-webhook', telegramRouter);
+
 // Rutas protegidas
 app.use('/api/inversores', authMiddleware, inversoresRouter);
 app.use('/api/peticiones', authMiddleware, peticionesRouter);
