@@ -64,22 +64,34 @@ async function agentAuthMiddleware(req, res, next) {
 // CAMPAÑAS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// GET /captacion/campanas — lista campañas del usuario autenticado
+// GET /captacion/campanas — lista TODAS las campañas (visibles para todo el equipo)
 router.get('/campanas', authMiddleware, async (req, res) => {
   const { data, error } = await supabase
     .from('captacion_campanas')
     .select('*, captacion_leads(id, estado)')
-    .eq('user_id', req.user.id)
     .order('created_at', { ascending: false });
 
   if (error) return res.status(500).json({ error: error.message });
 
-  // Añadir conteos de leads por estado
+  // Resolver emails de creadores
+  const userIds = [...new Set(data.map(c => c.user_id).filter(Boolean))];
+  const userMap = {};
+  if (userIds.length > 0) {
+    try {
+      const { data: usersData } = await supabase.auth.admin.listUsers({ perPage: 1000 });
+      for (const u of (usersData?.users || [])) {
+        userMap[u.id] = u.user_metadata?.full_name || u.email?.split('@')[0] || u.email;
+      }
+    } catch {}
+  }
+
+  // Añadir conteos de leads por estado + nombre del creador
   const campanas = data.map(c => {
     const leads = c.captacion_leads || [];
     return {
       ...c,
       captacion_leads: undefined,
+      creado_por: userMap[c.user_id] || 'Desconocido',
       leads_total: leads.length,
       leads_nuevo: leads.filter(l => l.estado === 'nuevo').length,
       leads_enviado: leads.filter(l => l.estado === 'enviado').length,
@@ -103,13 +115,12 @@ router.post('/campanas', authMiddleware, async (req, res) => {
   res.status(201).json(data);
 });
 
-// GET /captacion/campanas/:id — campaña con leads (solo si es del usuario)
+// GET /captacion/campanas/:id — campaña con leads (visible para todo el equipo)
 router.get('/campanas/:id', authMiddleware, async (req, res) => {
   const { data, error } = await supabase
     .from('captacion_campanas')
     .select('*, captacion_leads(*)')
     .eq('id', req.params.id)
-    .eq('user_id', req.user.id)
     .single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
@@ -145,13 +156,11 @@ router.delete('/campanas/:id', authMiddleware, async (req, res) => {
 // LEADS
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// GET /captacion/leads — listar leads del usuario (filtros: campana_id, estado)
+// GET /captacion/leads — listar TODOS los leads (visibles para todo el equipo)
 router.get('/leads', authMiddleware, async (req, res) => {
-  // Solo leads cuyas campañas pertenecen al usuario
   let query = supabase
     .from('captacion_leads')
     .select('*, captacion_campanas!inner(nombre, portal, user_id)')
-    .eq('captacion_campanas.user_id', req.user.id)
     .order('created_at', { ascending: false });
 
   if (req.query.campana_id) query = query.eq('campana_id', req.query.campana_id);
@@ -170,9 +179,6 @@ router.get('/leads/:id', authMiddleware, async (req, res) => {
     .eq('id', req.params.id)
     .single();
   if (error || !lead) return res.status(404).json({ error: 'Lead no encontrado' });
-  if (lead.captacion_campanas?.user_id !== req.user.id) {
-    return res.status(403).json({ error: 'No tienes acceso a este lead' });
-  }
 
   // Envíos de WhatsApp
   const { data: envios } = await supabase

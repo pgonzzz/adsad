@@ -2486,6 +2486,7 @@ export default function Captacion() {
                   <th className="px-4 py-3 font-medium">Ubicación</th>
                   <th className="px-4 py-3 font-medium">Tipo</th>
                   <th className="px-4 py-3 font-medium">Leads</th>
+                  <th className="px-4 py-3 font-medium">Creado por</th>
                   <th className="px-4 py-3 font-medium">Estado</th>
                   <th className="px-4 py-3 font-medium">Acciones</th>
                 </tr>
@@ -2513,6 +2514,7 @@ export default function Captacion() {
                         )}
                       </div>
                     </td>
+                    <td className="px-4 py-3 text-xs text-gray-500">{c.creado_por || '—'}</td>
                     <td className="px-4 py-3">
                       <Badge color={ESTADO_CAMPANA_COLORS[c.estado] || 'gray'}>
                         {c.estado}
