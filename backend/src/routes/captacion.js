@@ -128,20 +128,18 @@ router.get('/campanas/:id', authMiddleware, async (req, res) => {
 
 // PUT /captacion/campanas/:id — actualizar (solo si es del usuario)
 router.put('/campanas/:id', authMiddleware, async (req, res) => {
-  // Nunca permitir cambiar user_id via update
   const { user_id, ...safeBody } = req.body;
   const { data, error } = await supabase
     .from('captacion_campanas')
     .update(safeBody)
     .eq('id', req.params.id)
-    .eq('user_id', req.user.id)
     .select()
     .single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
 
-// DELETE /captacion/campanas/:id — eliminar (solo si es del usuario)
+// DELETE /captacion/campanas/:id
 router.delete('/campanas/:id', authMiddleware, async (req, res) => {
   const { error } = await supabase
     .from('captacion_campanas')
@@ -199,19 +197,8 @@ router.get('/leads/:id', authMiddleware, async (req, res) => {
   res.json({ ...lead, envios: envios || [], recordatorios: recordatorios || [] });
 });
 
-// POST /captacion/leads — crear lead (manual, desde el frontend)
+// POST /captacion/leads — crear lead (manual)
 router.post('/leads', authMiddleware, async (req, res) => {
-  // Verificar que la campaña pertenece al usuario
-  if (req.body.campana_id) {
-    const { data: campana } = await supabase
-      .from('captacion_campanas')
-      .select('user_id')
-      .eq('id', req.body.campana_id)
-      .single();
-    if (!campana || campana.user_id !== req.user.id) {
-      return res.status(403).json({ error: 'No tienes acceso a esta campaña' });
-    }
-  }
   const { data, error } = await supabase
     .from('captacion_leads')
     .insert([req.body])
@@ -221,17 +208,8 @@ router.post('/leads', authMiddleware, async (req, res) => {
   res.status(201).json(data);
 });
 
-// PUT /captacion/leads/:id — actualizar estado/notas (solo de sus campañas)
+// PUT /captacion/leads/:id — actualizar estado/notas
 router.put('/leads/:id', authMiddleware, async (req, res) => {
-  // Verificar que el lead pertenece a una campaña del usuario
-  const { data: lead } = await supabase
-    .from('captacion_leads')
-    .select('campana_id, captacion_campanas(user_id)')
-    .eq('id', req.params.id)
-    .single();
-  if (!lead || lead.captacion_campanas?.user_id !== req.user.id) {
-    return res.status(403).json({ error: 'No tienes acceso a este lead' });
-  }
   const { data, error } = await supabase
     .from('captacion_leads')
     .update(req.body)
@@ -318,16 +296,6 @@ router.post('/agent/ack', agentAuthMiddleware, async (req, res) => {
 
 // GET /captacion/leads/:id/envios — historial de mensajes enviados a un lead
 router.get('/leads/:id/envios', authMiddleware, async (req, res) => {
-  // Verificar propiedad del lead
-  const { data: lead } = await supabase
-    .from('captacion_leads')
-    .select('captacion_campanas(user_id)')
-    .eq('id', req.params.id)
-    .single();
-  if (!lead || lead.captacion_campanas?.user_id !== req.user.id) {
-    return res.status(403).json({ error: 'No tienes acceso a este lead' });
-  }
-
   const { data, error } = await supabase
     .from('captacion_envios')
     .select('*')
@@ -337,17 +305,8 @@ router.get('/leads/:id/envios', authMiddleware, async (req, res) => {
   res.json(data);
 });
 
-// DELETE /captacion/leads/:id — eliminar lead (solo si es del usuario)
+// DELETE /captacion/leads/:id
 router.delete('/leads/:id', authMiddleware, async (req, res) => {
-  // Verificar propiedad
-  const { data: lead } = await supabase
-    .from('captacion_leads')
-    .select('captacion_campanas(user_id)')
-    .eq('id', req.params.id)
-    .single();
-  if (!lead || lead.captacion_campanas?.user_id !== req.user.id) {
-    return res.status(403).json({ error: 'No tienes acceso a este lead' });
-  }
   const { error } = await supabase
     .from('captacion_leads')
     .delete()
@@ -432,15 +391,6 @@ router.post('/tareas', authMiddleware, async (req, res) => {
   if (!campanaId) {
     return res.status(400).json({ error: 'Falta campana_id en el payload' });
   }
-  // Verificar que la campaña es del usuario
-  const { data: campana } = await supabase
-    .from('captacion_campanas')
-    .select('user_id')
-    .eq('id', campanaId)
-    .single();
-  if (!campana || campana.user_id !== req.user.id) {
-    return res.status(403).json({ error: 'No tienes acceso a esta campaña' });
-  }
   const { data, error } = await supabase
     .from('captacion_tareas')
     .insert([{ ...req.body, estado: 'pendiente', user_id: req.user.id }])
@@ -464,9 +414,6 @@ router.post('/tareas/:id/cancel', authMiddleware, async (req, res) => {
   if (selErr || !tarea) {
     return res.status(404).json({ error: 'Tarea no encontrada' });
   }
-  if (tarea.user_id !== req.user.id) {
-    return res.status(403).json({ error: 'No tienes acceso a esta tarea' });
-  }
   if (tarea.estado !== 'pendiente' && tarea.estado !== 'en_proceso') {
     return res.status(400).json({ error: `La tarea está en estado "${tarea.estado}" y no se puede cancelar` });
   }
@@ -484,16 +431,6 @@ router.post('/tareas/:id/cancel', authMiddleware, async (req, res) => {
 // activa (pendiente o en_proceso) de una campaña, si la hay. El frontend
 // lo usa para decidir si muestra el botón "Pausar scraping".
 router.get('/campanas/:id/active-task', authMiddleware, async (req, res) => {
-  // Verificar que la campaña es del usuario
-  const { data: campana } = await supabase
-    .from('captacion_campanas')
-    .select('user_id')
-    .eq('id', req.params.id)
-    .single();
-  if (!campana || campana.user_id !== req.user.id) {
-    return res.status(403).json({ error: 'No tienes acceso a esta campaña' });
-  }
-
   // Buscar tarea scrape activa para esta campaña
   const { data, error } = await supabase
     .from('captacion_tareas')
