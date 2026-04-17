@@ -12,7 +12,7 @@ import operacionesRouter from './routes/operaciones.js';
 import dashboardRouter from './routes/dashboard.js';
 import captacionRouter from './routes/captacion.js';
 import activityLogRouter from './routes/activity-log.js';
-import telegramRouter from './routes/telegram.js';
+import telegramRouter, { handleBotMessage } from './routes/telegram.js';
 import generatePropertyRouter from './routes/generate-property.js';
 import recordatoriosRouter from './routes/recordatorios.js';
 import notificacionesRouter from './routes/notificaciones.js';
@@ -42,9 +42,32 @@ app.use(express.json({ limit: '15mb' }));
 app.get('/health', (_req, res) => res.json({ ok: true }));
 
 // Telegram: webhook y setup sin auth (Telegram no envía Bearer token)
-// Las demás rutas de telegram (posts, config, etc.) van con auth más abajo.
-app.use('/api/telegram/webhook', telegramRouter);
-app.use('/api/telegram/setup-webhook', telegramRouter);
+app.post('/api/telegram/webhook', (req, res) => {
+  res.status(200).json({ ok: true });
+  const msg = req.body?.message;
+  if (msg?.text && msg?.chat?.id) {
+    console.log(`[TgBot] Mensaje de ${msg.from?.first_name || msg.chat.id}: "${msg.text.slice(0, 60)}"`);
+    handleBotMessage(msg.chat.id, msg.text.trim()).catch(err => {
+      console.error('[TgBot] Error:', err.message);
+    });
+  }
+});
+app.get('/api/telegram/setup-webhook', async (req, res) => {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const backendUrl = process.env.BACKEND_URL || 'https://crm-pisalia-production.up.railway.app';
+  const webhookUrl = `${backendUrl}/api/telegram/webhook`;
+  try {
+    const r = await fetch(`https://api.telegram.org/bot${token}/setWebhook`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: webhookUrl }),
+    });
+    const data = await r.json();
+    res.json({ ok: true, webhook_url: webhookUrl, telegram: data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // Rutas protegidas
 app.use('/api/inversores', authMiddleware, inversoresRouter);

@@ -602,6 +602,7 @@ router.get('/setup-webhook', async (req, res) => {
   }
 });
 
+export { handleBotMessage };
 export default router;
 
 // ─── Scheduler para posts programados ─────────────────────────────────────────
