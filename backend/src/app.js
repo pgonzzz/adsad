@@ -45,9 +45,9 @@ app.get('/health', (_req, res) => res.json({ ok: true }));
 app.post('/api/telegram/webhook', (req, res) => {
   res.status(200).json({ ok: true });
   const msg = req.body?.message;
-  if (msg?.text && msg?.chat?.id) {
-    console.log(`[TgBot] Mensaje de ${msg.from?.first_name || msg.chat.id}: "${msg.text.slice(0, 60)}"`);
-    handleBotMessage(msg.chat.id, msg.text.trim()).catch(err => {
+  if (msg?.text && msg?.chat?.id && msg?.from?.id) {
+    console.log(`[TgBot] Mensaje de ${msg.from?.first_name || msg.chat.id} (userId=${msg.from.id}, chatId=${msg.chat.id}): "${msg.text.slice(0, 60)}"`);
+    handleBotMessage(msg.chat.id, msg.from.id, msg.text.trim()).catch(err => {
       console.error('[TgBot] Error:', err.message);
     });
   }

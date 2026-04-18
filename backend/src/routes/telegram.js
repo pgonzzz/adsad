@@ -330,8 +330,13 @@ router.get('/published-ids', async (req, res) => {
 // TELEGRAM BOT WEBHOOK — Asistente IA vía mensajes privados al bot
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// IDs de chat autorizados (se configura con TELEGRAM_ADMIN_CHATS=id1,id2)
-const ADMIN_CHATS = () => (process.env.TELEGRAM_ADMIN_CHATS || '').split(',').filter(Boolean);
+// IDs de usuario autorizados (se configura con TELEGRAM_ADMIN_USERS=id1,id2)
+// Se acepta también TELEGRAM_ADMIN_CHATS como alias legado.
+const ADMIN_USERS = () =>
+  (process.env.TELEGRAM_ADMIN_USERS || process.env.TELEGRAM_ADMIN_CHATS || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
 
 // Memoria de conversación por chat (últimos 10 mensajes, expira en 30 min)
 const chatMemory = new Map();
@@ -378,10 +383,16 @@ REGLAS:
 - Devuelve SOLO el JSON, sin texto alrededor.
 - Español, breve, directo.`;
 
-async function handleBotMessage(chatId, text) {
-  // Verificar que el chat está autorizado
-  const admins = ADMIN_CHATS();
-  if (admins.length > 0 && !admins.includes(String(chatId))) {
+async function handleBotMessage(chatId, userId, text) {
+  // Autorización estricta: solo user IDs del whitelist. Fail-closed.
+  const admins = ADMIN_USERS();
+  if (admins.length === 0) {
+    console.warn('[TgBot] TELEGRAM_ADMIN_USERS no configurado — bot cerrado a todo el mundo.');
+    await tgApi('sendMessage', { chat_id: chatId, text: '🔒 Bot privado. No configurado todavía.' });
+    return;
+  }
+  if (!admins.includes(String(userId))) {
+    console.warn(`[TgBot] Acceso denegado a userId=${userId} (chat=${chatId})`);
     await tgApi('sendMessage', { chat_id: chatId, text: '❌ No tienes autorización para usar este bot.' });
     return;
   }
@@ -389,7 +400,7 @@ async function handleBotMessage(chatId, text) {
   try {
     // ── Comandos slash (gratis, sin IA) ────────────────────────────
     if (text.startsWith('/')) {
-      const result = await handleSlashCommand(text);
+      const result = await handleSlashCommand(text, { userId, chatId });
       await tgApi('sendMessage', { chat_id: chatId, text: result, parse_mode: 'HTML' });
       return;
     }
@@ -446,7 +457,7 @@ async function callGPT4oMini(history) {
 
 // ── Comandos slash ───────────────────────────────────────────────────────────
 
-async function handleSlashCommand(text) {
+async function handleSlashCommand(text, ctx = {}) {
   const [cmd, ...args] = text.trim().split(/\s+/);
   const arg = args.join(' ');
 
@@ -458,11 +469,15 @@ async function handleSlashCommand(text) {
         `/campanas — Listar campañas\n` +
         `/leads [campaña] — Ver leads\n` +
         `/stats — Estadísticas\n` +
-        `/propiedades — Propiedades en cartera\n\n` +
+        `/propiedades — Propiedades en cartera\n` +
+        `/whoami — Tu Telegram user ID\n\n` +
         `O escribe en lenguaje natural:\n` +
         `"Scrapea Valladolid pisos hasta 100k"\n` +
         `"Cuántos leads nuevos tengo?"\n` +
         `"Envía WhatsApp a los de Ciudad Real"`;
+
+    case '/whoami':
+      return `🆔 Tu user ID: <code>${ctx.userId || '?'}</code>\n💬 Chat ID: <code>${ctx.chatId || '?'}</code>`;
 
     case '/campanas': {
       const { data } = await supabase.from('captacion_campanas').select('id, nombre, estado, poblacion, provincia').order('created_at', { ascending: false }).limit(10);
@@ -684,12 +699,15 @@ router.post('/webhook', async (req, res) => {
   if (!msg?.text || !msg?.chat?.id) return;
 
   const chatId = msg.chat.id;
+  const userId = msg.from?.id;
   const text = msg.text.trim();
 
-  console.log(`[TgBot] Mensaje de ${msg.from?.first_name || chatId}: "${text.slice(0, 60)}"`);
+  console.log(`[TgBot] Mensaje de ${msg.from?.first_name || chatId} (userId=${userId}, chatId=${chatId}): "${text.slice(0, 60)}"`);
+
+  if (!userId) return; // mensajes sin remitente identificable → ignorar
 
   // Procesar en background
-  handleBotMessage(chatId, text).catch(err => {
+  handleBotMessage(chatId, userId, text).catch(err => {
     console.error('[TgBot] Error procesando mensaje:', err.message);
   });
 });
