@@ -333,6 +333,25 @@ router.get('/published-ids', async (req, res) => {
 // IDs de chat autorizados (se configura con TELEGRAM_ADMIN_CHATS=id1,id2)
 const ADMIN_CHATS = () => (process.env.TELEGRAM_ADMIN_CHATS || '').split(',').filter(Boolean);
 
+// Memoria de conversación por chat (últimos 10 mensajes, expira en 30 min)
+const chatMemory = new Map();
+function getMemory(chatId) {
+  const mem = chatMemory.get(chatId);
+  if (!mem) return [];
+  // Limpiar mensajes de hace más de 30 min
+  const cutoff = Date.now() - 30 * 60 * 1000;
+  const fresh = mem.filter(m => m.ts > cutoff);
+  if (fresh.length !== mem.length) chatMemory.set(chatId, fresh);
+  return fresh.slice(-10); // máximo 10 mensajes de contexto
+}
+function addToMemory(chatId, role, content) {
+  if (!chatMemory.has(chatId)) chatMemory.set(chatId, []);
+  chatMemory.get(chatId).push({ role, content, ts: Date.now() });
+  // Limitar a 20 mensajes máximo
+  const mem = chatMemory.get(chatId);
+  if (mem.length > 20) chatMemory.set(chatId, mem.slice(-10));
+}
+
 const ASSISTANT_SYSTEM = `Eres el asistente de Pisalia CRM, un CRM inmobiliario.
 Ayudas a gestionar campañas de captación, leads, propiedades e inversores.
 
@@ -375,8 +394,12 @@ async function handleBotMessage(chatId, text) {
       return;
     }
 
-    // ── Lenguaje natural (GPT-4o-mini) ─────────────────────────────
-    const aiResponse = await callGPT4oMini(text);
+    // Guardar mensaje del usuario en memoria
+    addToMemory(chatId, 'user', text);
+
+    // ── Lenguaje natural (GPT-4o-mini con memoria) ─────────────────
+    const history = getMemory(chatId);
+    const aiResponse = await callGPT4oMini(history);
 
     // Intentar parsear como acción JSON
     let action = null;
@@ -385,29 +408,34 @@ async function handleBotMessage(chatId, text) {
       if (jsonMatch) action = JSON.parse(jsonMatch[0]);
     } catch {}
 
+    let reply;
     if (action?.action) {
-      const result = await executeAction(action);
-      await tgApi('sendMessage', { chat_id: chatId, text: result, parse_mode: 'HTML' });
+      reply = await executeAction(action);
+      await tgApi('sendMessage', { chat_id: chatId, text: reply, parse_mode: 'HTML' });
     } else {
-      // Respuesta conversacional (sin acción)
-      await tgApi('sendMessage', { chat_id: chatId, text: aiResponse });
+      reply = aiResponse;
+      await tgApi('sendMessage', { chat_id: chatId, text: reply });
     }
+
+    // Guardar respuesta en memoria
+    addToMemory(chatId, 'assistant', reply);
   } catch (err) {
     console.error('[TgBot] Error:', err.message);
     await tgApi('sendMessage', { chat_id: chatId, text: `❌ Error: ${err.message}` });
   }
 }
 
-async function callGPT4oMini(userMessage) {
+async function callGPT4oMini(history) {
+  const messages = [
+    { role: 'system', content: ASSISTANT_SYSTEM },
+    ...history.map(m => ({ role: m.role, content: m.content })),
+  ];
   const res = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${OPENAI_KEY()}` },
     body: JSON.stringify({
       model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: ASSISTANT_SYSTEM },
-        { role: 'user', content: userMessage },
-      ],
+      messages,
       max_tokens: 500,
     }),
   });
