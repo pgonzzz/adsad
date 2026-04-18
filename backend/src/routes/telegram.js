@@ -700,7 +700,7 @@ router.post('/webhook', async (req, res) => {
   const chatId = msg.chat.id;
   const text = msg.text.trim();
 
-  console.log(`[TgBot] Mensaje de ${msg.from?.first_name || chatId}: "${text.slice(0, 60)}"`);
+  console.log(`[TgBot] chat_id=${chatId} from=${msg.from?.first_name || '?'} text="${text.slice(0, 60)}"`);
 
   // Procesar en background
   handleBotMessage(chatId, text).catch(err => {
