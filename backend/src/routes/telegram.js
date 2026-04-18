@@ -338,20 +338,26 @@ Ayudas a gestionar campañas de captación, leads, propiedades e inversores.
 
 Tienes acceso a estas FUNCIONES (devuelve JSON con "action" para ejecutarlas):
 
-1. {"action":"list_campanas"} — Listar campañas de captación
-2. {"action":"create_campana","nombre":"...","poblacion":"...","provincia":"...","url_inicial":"...","tipo":"piso","max_paginas":2} — Crear campaña
-3. {"action":"start_scrape","campana_id":"..."} — Iniciar scraping de una campaña (necesita el ID)
-4. {"action":"list_leads","campana_id":"...","estado":"nuevo"} — Listar leads (filtros opcionales)
-5. {"action":"stats"} — Estadísticas generales del CRM
-6. {"action":"send_wa","campana_id":"..."} — Enviar WhatsApp a leads nuevos de una campaña
-7. {"action":"list_propiedades"} — Listar propiedades en cartera
+1. {"action":"list_campanas"} — Listar campañas
+2. {"action":"create_campana","nombre":"...","poblacion":"...","provincia":"...","tipo":"piso","max_paginas":2} — Crear campaña nueva
+3. {"action":"start_scrape","nombre_campana":"..."} — Iniciar scraping (busca la campaña por nombre/población)
+4. {"action":"list_leads"} — Listar TODOS los leads nuevos (sin filtro)
+5. {"action":"list_leads","poblacion":"Valladolid"} — Listar leads filtrados por población
+6. {"action":"list_leads","estado":"respondido"} — Listar leads por estado
+7. {"action":"stats"} — Estadísticas generales
+8. {"action":"send_wa","nombre_campana":"..."} — Enviar WhatsApp a leads nuevos de una campaña
+9. {"action":"list_propiedades"} — Listar propiedades en cartera
 
-REGLAS:
-- Si el usuario dice algo como "scrapea Valladolid pisos hasta 100k", crea la campaña Y lanza el scraping.
-- Si pide stats o resumen, devuelve la acción stats.
-- Si no es una acción del CRM (saludo, pregunta general), responde normalmente SIN JSON.
-- Cuando devuelvas JSON, devuelve SOLO el JSON, sin texto antes ni después.
-- Si necesitas más información para ejecutar (ej: no sabes qué campaña), pregunta al usuario.
+REGLAS IMPORTANTES:
+- NUNCA pidas un ID al usuario. Tú buscas internamente por nombre o población.
+- "Cuántos leads tengo?" → usa list_leads sin filtro, o stats.
+- "Leads de Valladolid" → usa list_leads con poblacion:"Valladolid".
+- "En la última campaña" o "la más reciente" → usa list_leads sin filtro (las más recientes salen primero).
+- "Scrapea Valladolid pisos hasta 100k" → create_campana + start_scrape.
+- "Envía WhatsApp a los de Ciudad Real" → send_wa con nombre_campana que contenga "Ciudad Real".
+- Si pide stats/resumen → stats.
+- Si no es una acción del CRM → responde normalmente SIN JSON.
+- Devuelve SOLO el JSON cuando ejecutes una acción, sin texto alrededor.
 - Responde siempre en español, breve y directo.`;
 
 async function handleBotMessage(chatId, text) {
@@ -483,13 +489,41 @@ async function handleSlashCommand(text) {
 
 // ── Ejecutar acción del asistente IA ─────────────────────────────────────────
 
+// Helper: buscar campaña por nombre, población o la más reciente
+async function findCampana(hint) {
+  if (!hint) {
+    // Sin pista → la más reciente
+    const { data } = await supabase.from('captacion_campanas').select('*').eq('estado', 'activa').order('created_at', { ascending: false }).limit(1);
+    return data?.[0] || null;
+  }
+  const term = hint.toLowerCase();
+  const { data } = await supabase.from('captacion_campanas').select('*').eq('estado', 'activa').order('created_at', { ascending: false }).limit(20);
+  return (data || []).find(c =>
+    (c.nombre || '').toLowerCase().includes(term) ||
+    (c.poblacion || '').toLowerCase().includes(term) ||
+    (c.provincia || '').toLowerCase().includes(term)
+  ) || data?.[0] || null;
+}
+
 async function executeAction(action) {
   switch (action.action) {
     case 'list_campanas':
       return handleSlashCommand('/campanas');
 
-    case 'list_leads':
-      return handleSlashCommand('/leads ' + (action.poblacion || ''));
+    case 'list_leads': {
+      // Buscar leads con filtros opcionales (sin requerir IDs)
+      let query = supabase.from('captacion_leads')
+        .select('id, nombre_vendedor, telefono, estado, precio, poblacion', { count: 'exact' });
+      if (action.estado) query = query.eq('estado', action.estado);
+      if (action.poblacion) query = query.ilike('poblacion', `%${action.poblacion}%`);
+      query = query.order('created_at', { ascending: false }).limit(10);
+      const { data, count } = await query;
+      if (!data?.length) return `📭 No hay leads${action.estado ? ` con estado "${action.estado}"` : ''}${action.poblacion ? ` en ${action.poblacion}` : ''}.`;
+      const filters = [action.estado, action.poblacion].filter(Boolean).join(', ');
+      return `👥 <b>Leads</b> (${count} total${filters ? `, filtro: ${filters}` : ''})\n\n` + data.map((l, i) =>
+        `${i+1}. ${l.nombre_vendedor || '—'} · ${l.telefono || 'sin tel'} · ${l.precio ? l.precio.toLocaleString('es-ES') + '€' : '—'} · ${l.estado}`
+      ).join('\n');
+    }
 
     case 'stats':
       return handleSlashCommand('/stats');
@@ -510,24 +544,12 @@ async function executeAction(action) {
         plantilla_mensaje: 'Hola {{nombre}}, te contacto en relación a tu anuncio de {{tipo}} en {{poblacion}} por {{precio}}. ¿Sigues teniendo disponible el inmueble?',
       }]).select().single();
       if (error) return `❌ Error creando campaña: ${error.message}`;
-      return `✅ Campaña "<b>${data.nombre}</b>" creada.\n\nID: <code>${data.id}</code>\n\n💡 Para iniciar scraping, escribe:\n"Scrapea la campaña de ${action.poblacion || data.nombre}"`;
+      return `✅ Campaña "<b>${data.nombre}</b>" creada.\n\n💡 Escribe "scrapea ${action.poblacion || data.nombre}" para iniciar el scraping.`;
     }
 
     case 'start_scrape': {
-      if (!action.campana_id) {
-        // Intentar buscar por nombre/poblacion
-        const { data: campanas } = await supabase.from('captacion_campanas').select('id, nombre, url_inicial, poblacion, provincia, tipo, max_paginas').eq('estado', 'activa').order('created_at', { ascending: false }).limit(5);
-        if (!campanas?.length) return '❌ No hay campañas activas.';
-        if (campanas.length === 1) {
-          action.campana_id = campanas[0].id;
-        } else {
-          return `🔍 ¿Cuál campaña?\n\n` + campanas.map((c, i) =>
-            `${i+1}. ${c.nombre} (${c.poblacion || '—'})`
-          ).join('\n') + `\n\nEscribe el nombre de la campaña que quieres scrapear.`;
-        }
-      }
-      const { data: campana } = await supabase.from('captacion_campanas').select('*').eq('id', action.campana_id).single();
-      if (!campana) return '❌ Campaña no encontrada.';
+      const campana = await findCampana(action.nombre_campana || action.poblacion);
+      if (!campana) return '❌ No hay campañas activas. Crea una primero.';
       const { error } = await supabase.from('captacion_tareas').insert([{
         tipo: 'scrape',
         estado: 'pendiente',
@@ -541,22 +563,22 @@ async function executeAction(action) {
         },
       }]);
       if (error) return `❌ Error: ${error.message}`;
-      return `🚀 Scraping iniciado para "<b>${campana.nombre}</b>".\n\nEl agente lo ejecutará en breve. Te avisaré cuando termine.`;
+      return `🚀 Scraping iniciado para "<b>${campana.nombre}</b>" (${campana.poblacion || '—'}).\n\nEl agente lo ejecutará en breve.`;
     }
 
     case 'send_wa': {
-      if (!action.campana_id) return '❌ Necesito el ID de la campaña. Escribe /campanas para verlas.';
-      const { data: leads } = await supabase.from('captacion_leads').select('*').eq('campana_id', action.campana_id).eq('estado', 'nuevo');
+      const waCampana = await findCampana(action.nombre_campana || action.poblacion);
+      if (!waCampana) return '❌ No hay campañas activas.';
+      const { data: leads } = await supabase.from('captacion_leads').select('*').eq('campana_id', waCampana.id).eq('estado', 'nuevo');
       const moviles = (leads || []).filter(l => l.telefono && /^[67]/.test(l.telefono.replace(/[\s-+]/g, '').replace(/^34/, '')));
-      if (moviles.length === 0) return '📭 No hay leads nuevos con móvil en esta campaña.';
-      const { data: campana } = await supabase.from('captacion_campanas').select('plantilla_mensaje').eq('id', action.campana_id).single();
+      if (moviles.length === 0) return `📭 No hay leads nuevos con móvil en "${waCampana.nombre}".`;
       const { error } = await supabase.from('captacion_tareas').insert([{
         tipo: 'whatsapp_send',
         estado: 'pendiente',
         payload: {
-          campana_id: action.campana_id,
+          campana_id: waCampana.id,
           leads: moviles,
-          plantilla_mensaje: campana?.plantilla_mensaje || 'Hola {{nombre}}, te contacto por tu anuncio de {{tipo}} en {{poblacion}}.',
+          plantilla_mensaje: waCampana.plantilla_mensaje || 'Hola {{nombre}}, te contacto por tu anuncio de {{tipo}} en {{poblacion}}.',
         },
       }]);
       if (error) return `❌ Error: ${error.message}`;
