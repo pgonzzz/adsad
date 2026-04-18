@@ -330,8 +330,14 @@ router.get('/published-ids', async (req, res) => {
 // TELEGRAM BOT WEBHOOK — Asistente IA vía mensajes privados al bot
 // ═══════════════════════════════════════════════════════════════════════════════
 
-// IDs de chat autorizados (se configura con TELEGRAM_ADMIN_CHATS=id1,id2)
-const ADMIN_CHATS = () => (process.env.TELEGRAM_ADMIN_CHATS || '').split(',').filter(Boolean);
+// IDs de chat autorizados. Si TELEGRAM_ADMIN_CHATS no está definido en el entorno,
+// se usa esta lista por defecto. Para añadir/quitar admins sin tocar código, definir
+// la variable de entorno en Railway: TELEGRAM_ADMIN_CHATS=id1,id2
+const DEFAULT_ADMIN_CHATS = ['1844171876'];
+const ADMIN_CHATS = () => {
+  const fromEnv = (process.env.TELEGRAM_ADMIN_CHATS || '').split(',').filter(Boolean);
+  return fromEnv.length > 0 ? fromEnv : DEFAULT_ADMIN_CHATS;
+};
 
 // Memoria de conversación por chat (últimos 10 mensajes, expira en 30 min)
 const chatMemory = new Map();
