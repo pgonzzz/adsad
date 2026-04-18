@@ -533,17 +533,18 @@ async function handleSlashCommand(text) {
 // Helper: buscar campaña por nombre, población o la más reciente
 async function findCampana(hint) {
   if (!hint) {
-    // Sin pista → la más reciente
-    const { data } = await supabase.from('captacion_campanas').select('*').eq('estado', 'activa').order('created_at', { ascending: false }).limit(1);
+    const { data } = await supabase.from('captacion_campanas').select('*').order('created_at', { ascending: false }).limit(1);
     return data?.[0] || null;
   }
   const term = hint.toLowerCase();
-  const { data } = await supabase.from('captacion_campanas').select('*').eq('estado', 'activa').order('created_at', { ascending: false }).limit(20);
-  return (data || []).find(c =>
+  // Buscar en TODAS las campañas (no solo activas)
+  const { data } = await supabase.from('captacion_campanas').select('*').order('created_at', { ascending: false }).limit(50);
+  const match = (data || []).find(c =>
     (c.nombre || '').toLowerCase().includes(term) ||
     (c.poblacion || '').toLowerCase().includes(term) ||
     (c.provincia || '').toLowerCase().includes(term)
-  ) || data?.[0] || null;
+  );
+  return match || null; // NO devolver una aleatoria si no hay match
 }
 
 async function executeAction(action) {
