@@ -336,29 +336,28 @@ const ADMIN_CHATS = () => (process.env.TELEGRAM_ADMIN_CHATS || '').split(',').fi
 const ASSISTANT_SYSTEM = `Eres el asistente de Pisalia CRM, un CRM inmobiliario.
 Ayudas a gestionar campañas de captación, leads, propiedades e inversores.
 
-Tienes acceso a estas FUNCIONES (devuelve JSON con "action" para ejecutarlas):
+FUNCIONES (devuelve JSON con "action"):
 
-1. {"action":"list_campanas"} — Listar campañas
-2. {"action":"create_campana","nombre":"...","poblacion":"...","provincia":"...","tipo":"piso","max_paginas":2} — Crear campaña nueva
-3. {"action":"start_scrape","nombre_campana":"..."} — Iniciar scraping (busca la campaña por nombre/población)
-4. {"action":"list_leads"} — Listar TODOS los leads nuevos (sin filtro)
-5. {"action":"list_leads","poblacion":"Valladolid"} — Listar leads filtrados por población
-6. {"action":"list_leads","estado":"respondido"} — Listar leads por estado
-7. {"action":"stats"} — Estadísticas generales
-8. {"action":"send_wa","nombre_campana":"..."} — Enviar WhatsApp a leads nuevos de una campaña
-9. {"action":"list_propiedades"} — Listar propiedades en cartera
+{"action":"stats"} — Estadísticas generales (campañas, leads, propiedades)
+{"action":"count_leads","poblacion":"...","estado":"..."} — CONTAR leads (todos los filtros son opcionales)
+{"action":"list_leads","poblacion":"...","estado":"...","limit":5} — LISTAR leads (mostrar datos)
+{"action":"list_campanas"} — Listar campañas
+{"action":"create_campana","nombre":"...","poblacion":"...","provincia":"...","tipo":"piso","max_paginas":2}
+{"action":"start_scrape","nombre_campana":"..."} — Iniciar scraping
+{"action":"send_wa","nombre_campana":"..."} — Enviar WhatsApp a leads nuevos
+{"action":"list_propiedades"} — Listar propiedades
 
-REGLAS IMPORTANTES:
-- NUNCA pidas un ID al usuario. Tú buscas internamente por nombre o población.
-- "Cuántos leads tengo?" → usa list_leads sin filtro, o stats.
-- "Leads de Valladolid" → usa list_leads con poblacion:"Valladolid".
-- "En la última campaña" o "la más reciente" → usa list_leads sin filtro (las más recientes salen primero).
-- "Scrapea Valladolid pisos hasta 100k" → create_campana + start_scrape.
-- "Envía WhatsApp a los de Ciudad Real" → send_wa con nombre_campana que contenga "Ciudad Real".
-- Si pide stats/resumen → stats.
+REGLAS:
+- NUNCA pidas un ID. Buscas por nombre/población internamente.
+- "Cuántos leads?" / "cuántos particulares?" / "dime el número" → SIEMPRE usa count_leads (da el número, NO la lista).
+- "Muéstrame los leads" / "qué leads hay" / "listame" → usa list_leads con limit:5.
+- "De Ciudad Real" / "de Valladolid" → añade poblacion al filtro.
+- "Particulares" → NO es un filtro de estado. Es solo contexto informativo, ignóralo en el JSON.
+- "Scrapea X" → create_campana + start_scrape.
+- "Envía WhatsApp a los de X" → send_wa.
 - Si no es una acción del CRM → responde normalmente SIN JSON.
-- Devuelve SOLO el JSON cuando ejecutes una acción, sin texto alrededor.
-- Responde siempre en español, breve y directo.`;
+- Devuelve SOLO el JSON, sin texto alrededor.
+- Español, breve, directo.`;
 
 async function handleBotMessage(chatId, text) {
   // Verificar que el chat está autorizado
@@ -510,13 +509,22 @@ async function executeAction(action) {
     case 'list_campanas':
       return handleSlashCommand('/campanas');
 
+    case 'count_leads': {
+      let query = supabase.from('captacion_leads').select('id', { count: 'exact', head: true });
+      if (action.estado) query = query.eq('estado', action.estado);
+      if (action.poblacion) query = query.ilike('poblacion', `%${action.poblacion}%`);
+      const { count } = await query;
+      const filters = [action.estado, action.poblacion].filter(Boolean);
+      return `📊 <b>${count || 0} leads</b>${filters.length ? ` (filtro: ${filters.join(', ')})` : ''}.`;
+    }
+
     case 'list_leads': {
-      // Buscar leads con filtros opcionales (sin requerir IDs)
+      const lim = Math.min(action.limit || 5, 10);
       let query = supabase.from('captacion_leads')
         .select('id, nombre_vendedor, telefono, estado, precio, poblacion', { count: 'exact' });
       if (action.estado) query = query.eq('estado', action.estado);
       if (action.poblacion) query = query.ilike('poblacion', `%${action.poblacion}%`);
-      query = query.order('created_at', { ascending: false }).limit(10);
+      query = query.order('created_at', { ascending: false }).limit(lim);
       const { data, count } = await query;
       if (!data?.length) return `📭 No hay leads${action.estado ? ` con estado "${action.estado}"` : ''}${action.poblacion ? ` en ${action.poblacion}` : ''}.`;
       const filters = [action.estado, action.poblacion].filter(Boolean).join(', ');
