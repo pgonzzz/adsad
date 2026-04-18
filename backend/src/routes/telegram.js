@@ -509,6 +509,20 @@ async function handleSlashCommand(text) {
       ).join('\n');
     }
 
+    case '/debug': {
+      // Muestra campos reales de 5 leads para diagnóstico
+      const campana = await findCampana(arg);
+      if (!campana) return '❌ Campaña no encontrada. Uso: /debug ciudad real';
+      const { data } = await supabase.from('captacion_leads')
+        .select('nombre_vendedor, es_particular, telefono, precio')
+        .eq('campana_id', campana.id)
+        .limit(5);
+      if (!data?.length) return '📭 Sin leads en esa campaña.';
+      return `🔍 <b>Debug: ${campana.nombre}</b>\n\n` + data.map((l, i) =>
+        `${i+1}. nombre="${l.nombre_vendedor || 'NULL'}"\n   es_particular=${l.es_particular}\n   tel=${l.telefono || 'NULL'}`
+      ).join('\n\n');
+    }
+
     default:
       return `❓ Comando desconocido. Escribe /help para ver los disponibles.`;
   }
