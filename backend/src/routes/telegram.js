@@ -379,6 +379,13 @@ REGLAS:
 - Español, breve, directo.`;
 
 async function handleBotMessage(chatId, text) {
+  // /whoami siempre permitido — se usa para descubrir el chat_id a añadir a la allowlist
+  if (text.trim().startsWith('/whoami')) {
+    const result = await handleSlashCommand('/whoami', chatId);
+    await tgApi('sendMessage', { chat_id: chatId, text: result, parse_mode: 'HTML' });
+    return;
+  }
+
   // Verificar que el chat está autorizado
   const admins = ADMIN_CHATS();
   if (admins.length > 0 && !admins.includes(String(chatId))) {
@@ -389,7 +396,7 @@ async function handleBotMessage(chatId, text) {
   try {
     // ── Comandos slash (gratis, sin IA) ────────────────────────────
     if (text.startsWith('/')) {
-      const result = await handleSlashCommand(text);
+      const result = await handleSlashCommand(text, chatId);
       await tgApi('sendMessage', { chat_id: chatId, text: result, parse_mode: 'HTML' });
       return;
     }
@@ -446,7 +453,7 @@ async function callGPT4oMini(history) {
 
 // ── Comandos slash ───────────────────────────────────────────────────────────
 
-async function handleSlashCommand(text) {
+async function handleSlashCommand(text, chatId) {
   const [cmd, ...args] = text.trim().split(/\s+/);
   const arg = args.join(' ');
 
@@ -458,11 +465,18 @@ async function handleSlashCommand(text) {
         `/campanas — Listar campañas\n` +
         `/leads [campaña] — Ver leads\n` +
         `/stats — Estadísticas\n` +
-        `/propiedades — Propiedades en cartera\n\n` +
+        `/propiedades — Propiedades en cartera\n` +
+        `/whoami — Ver tu chat ID (para autorización)\n\n` +
         `O escribe en lenguaje natural:\n` +
         `"Scrapea Valladolid pisos hasta 100k"\n` +
         `"Cuántos leads nuevos tengo?"\n` +
         `"Envía WhatsApp a los de Ciudad Real"`;
+
+    case '/whoami':
+      return `🆔 <b>Tu chat ID:</b> <code>${chatId}</code>\n\n` +
+        `Para autorizar este chat añade en Railway:\n` +
+        `<code>TELEGRAM_ADMIN_CHATS=${chatId}</code>\n` +
+        `(o varios separados por coma)`;
 
     case '/campanas': {
       const { data } = await supabase.from('captacion_campanas').select('id, nombre, estado, poblacion, provincia').order('created_at', { ascending: false }).limit(10);
@@ -686,7 +700,7 @@ router.post('/webhook', async (req, res) => {
   const chatId = msg.chat.id;
   const text = msg.text.trim();
 
-  console.log(`[TgBot] Mensaje de ${msg.from?.first_name || chatId}: "${text.slice(0, 60)}"`);
+  console.log(`[TgBot] chat_id=${chatId} from=${msg.from?.first_name || '?'} text="${text.slice(0, 60)}"`);
 
   // Procesar en background
   handleBotMessage(chatId, text).catch(err => {
