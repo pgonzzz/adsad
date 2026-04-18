@@ -358,8 +358,8 @@ Ayudas a gestionar campañas de captación, leads, propiedades e inversores.
 FUNCIONES (devuelve JSON con "action"):
 
 {"action":"stats"} — Estadísticas generales (campañas, leads, propiedades)
-{"action":"count_leads","poblacion":"...","estado":"..."} — CONTAR leads (todos los filtros son opcionales)
-{"action":"list_leads","poblacion":"...","estado":"...","limit":5} — LISTAR leads (mostrar datos)
+{"action":"count_leads","poblacion":"...","estado":"...","particular":true} — CONTAR leads (todos los filtros opcionales)
+{"action":"list_leads","poblacion":"...","estado":"...","particular":true,"limit":5} — LISTAR leads
 {"action":"list_campanas"} — Listar campañas
 {"action":"create_campana","nombre":"...","poblacion":"...","provincia":"...","tipo":"piso","max_paginas":2}
 {"action":"start_scrape","nombre_campana":"..."} — Iniciar scraping
@@ -371,7 +371,7 @@ REGLAS:
 - "Cuántos leads?" / "cuántos particulares?" / "dime el número" → SIEMPRE usa count_leads (da el número, NO la lista).
 - "Muéstrame los leads" / "qué leads hay" / "listame" → usa list_leads con limit:5.
 - "De Ciudad Real" / "de Valladolid" → añade poblacion al filtro.
-- "Particulares" → NO es un filtro de estado. Es solo contexto informativo, ignóralo en el JSON.
+- "Particulares" → añade "particular":true al JSON. "Agencias/profesionales" → "particular":false.
 - "Scrapea X" → create_campana + start_scrape.
 - "Envía WhatsApp a los de X" → send_wa.
 - Si no es una acción del CRM → responde normalmente SIN JSON.
@@ -541,9 +541,11 @@ async function executeAction(action) {
       let query = supabase.from('captacion_leads').select('id', { count: 'exact', head: true });
       if (action.estado) query = query.eq('estado', action.estado);
       if (action.poblacion) query = query.ilike('poblacion', `%${action.poblacion}%`);
+      if (action.particular === true) query = query.eq('es_particular', true);
+      if (action.particular === false) query = query.eq('es_particular', false);
       const { count } = await query;
-      const filters = [action.estado, action.poblacion].filter(Boolean);
-      return `📊 <b>${count || 0} leads</b>${filters.length ? ` (filtro: ${filters.join(', ')})` : ''}.`;
+      const filters = [action.estado, action.poblacion, action.particular === true ? 'particulares' : action.particular === false ? 'agencias' : null].filter(Boolean);
+      return `📊 <b>${count || 0} leads</b>${filters.length ? ` (${filters.join(', ')})` : ''}.`;
     }
 
     case 'list_leads': {
@@ -552,6 +554,8 @@ async function executeAction(action) {
         .select('id, nombre_vendedor, telefono, estado, precio, poblacion', { count: 'exact' });
       if (action.estado) query = query.eq('estado', action.estado);
       if (action.poblacion) query = query.ilike('poblacion', `%${action.poblacion}%`);
+      if (action.particular === true) query = query.eq('es_particular', true);
+      if (action.particular === false) query = query.eq('es_particular', false);
       query = query.order('created_at', { ascending: false }).limit(lim);
       const { data, count } = await query;
       if (!data?.length) return `📭 No hay leads${action.estado ? ` con estado "${action.estado}"` : ''}${action.poblacion ? ` en ${action.poblacion}` : ''}.`;
