@@ -538,29 +538,58 @@ async function executeAction(action) {
       return handleSlashCommand('/campanas');
 
     case 'count_leads': {
-      let query = supabase.from('captacion_leads').select('id', { count: 'exact', head: true });
+      // Buscar campaña si se menciona nombre/población
+      let campanaFilter = null;
+      if (action.poblacion || action.nombre_campana) {
+        const c = await findCampana(action.nombre_campana || action.poblacion);
+        if (c) campanaFilter = c.id;
+      }
+      let query = supabase.from('captacion_leads').select('id, es_particular, nombre_vendedor', { count: 'exact' });
       if (action.estado) query = query.eq('estado', action.estado);
-      if (action.poblacion) query = query.ilike('poblacion', `%${action.poblacion}%`);
-      if (action.particular === true) query = query.eq('es_particular', true);
-      if (action.particular === false) query = query.eq('es_particular', false);
-      const { count } = await query;
-      const filters = [action.estado, action.poblacion, action.particular === true ? 'particulares' : action.particular === false ? 'agencias' : null].filter(Boolean);
-      return `📊 <b>${count || 0} leads</b>${filters.length ? ` (${filters.join(', ')})` : ''}.`;
+      if (campanaFilter) query = query.eq('campana_id', campanaFilter);
+      else if (action.poblacion) query = query.ilike('poblacion', `%${action.poblacion}%`);
+      const { data: allLeads, count } = await query;
+
+      // Filtrar particulares/agencias en JS (es_particular no es fiable,
+      // muchos leads tienen nombre que empieza por "Particular" pero es_particular=false)
+      let finalCount = count || 0;
+      const filters = [action.estado, action.poblacion || action.nombre_campana].filter(Boolean);
+      if (action.particular === true && allLeads) {
+        finalCount = allLeads.filter(l => l.es_particular === true || (l.nombre_vendedor || '').toLowerCase().startsWith('particular')).length;
+        filters.push('particulares');
+      } else if (action.particular === false && allLeads) {
+        finalCount = allLeads.filter(l => l.es_particular === false && !(l.nombre_vendedor || '').toLowerCase().startsWith('particular')).length;
+        filters.push('agencias');
+      }
+      return `📊 <b>${finalCount} leads</b>${filters.length ? ` (${filters.join(', ')})` : ''}.`;
     }
 
     case 'list_leads': {
       const lim = Math.min(action.limit || 5, 10);
+      let campanaFilter = null;
+      if (action.poblacion || action.nombre_campana) {
+        const c = await findCampana(action.nombre_campana || action.poblacion);
+        if (c) campanaFilter = c.id;
+      }
       let query = supabase.from('captacion_leads')
-        .select('id, nombre_vendedor, telefono, estado, precio, poblacion', { count: 'exact' });
+        .select('id, nombre_vendedor, telefono, estado, precio, poblacion, es_particular', { count: 'exact' });
       if (action.estado) query = query.eq('estado', action.estado);
-      if (action.poblacion) query = query.ilike('poblacion', `%${action.poblacion}%`);
-      if (action.particular === true) query = query.eq('es_particular', true);
-      if (action.particular === false) query = query.eq('es_particular', false);
-      query = query.order('created_at', { ascending: false }).limit(lim);
+      if (campanaFilter) query = query.eq('campana_id', campanaFilter);
+      else if (action.poblacion) query = query.ilike('poblacion', `%${action.poblacion}%`);
+      query = query.order('created_at', { ascending: false }).limit(50); // traer más para filtrar en JS
       const { data, count } = await query;
-      if (!data?.length) return `📭 No hay leads${action.estado ? ` con estado "${action.estado}"` : ''}${action.poblacion ? ` en ${action.poblacion}` : ''}.`;
-      const filters = [action.estado, action.poblacion].filter(Boolean).join(', ');
-      return `👥 <b>Leads</b> (${count} total${filters ? `, filtro: ${filters}` : ''})\n\n` + data.map((l, i) =>
+      if (!data?.length) return `📭 No hay leads con esos filtros.`;
+      // Filtrar particulares/agencias en JS
+      let filtered = data;
+      if (action.particular === true) {
+        filtered = data.filter(l => l.es_particular === true || (l.nombre_vendedor || '').toLowerCase().startsWith('particular'));
+      } else if (action.particular === false) {
+        filtered = data.filter(l => l.es_particular === false && !(l.nombre_vendedor || '').toLowerCase().startsWith('particular'));
+      }
+      const shown = filtered.slice(0, lim);
+      if (shown.length === 0) return `📭 No hay leads con esos filtros.`;
+      const filterLabels = [action.estado, action.poblacion || action.nombre_campana, action.particular === true ? 'particulares' : action.particular === false ? 'agencias' : null].filter(Boolean).join(', ');
+      return `👥 <b>Leads</b> (${filtered.length} encontrados${filterLabels ? `, ${filterLabels}` : ''})\n\n` + shown.map((l, i) =>
         `${i+1}. ${l.nombre_vendedor || '—'} · ${l.telefono || 'sin tel'} · ${l.precio ? l.precio.toLocaleString('es-ES') + '€' : '—'} · ${l.estado}`
       ).join('\n');
     }
