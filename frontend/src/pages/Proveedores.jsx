@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { proveedoresApi } from '../api';
 import Modal from '../components/Modal';
 import Badge from '../components/Badge';
+import ContratosSection from '../components/ContratosSection';
 
 const empty = { tipo: 'inmobiliaria', nombre: '', email: '', telefono: '', empresa: '', notas: '' };
 
@@ -111,7 +112,7 @@ export default function Proveedores() {
         </div>
       </div>
 
-      <Modal isOpen={modal} onClose={() => setModal(false)} title={editing ? 'Editar proveedor' : 'Nuevo proveedor'}>
+      <Modal isOpen={modal} onClose={() => setModal(false)} title={editing ? 'Editar proveedor' : 'Nuevo proveedor'} size="lg">
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Tipo *</label>
@@ -157,6 +158,13 @@ export default function Proveedores() {
             </button>
           </div>
         </form>
+
+        {/* Contratos asociados — solo al editar, e invisible si no hay acceso */}
+        {editing && (
+          <div className="mt-6 pt-6 border-t border-gray-200">
+            <ContratosSection proveedorId={editing.id} />
+          </div>
+        )}
       </Modal>
     </div>
   );

@@ -15,6 +15,7 @@ import PropiedadDetalle from './pages/PropiedadDetalle';
 import Calculadora from './pages/Calculadora';
 import AuditLog from './pages/AuditLog';
 import LeadDetalle from './pages/LeadDetalle';
+import Contratos from './pages/Contratos';
 
 export default function App() {
   return (
@@ -44,6 +45,7 @@ export default function App() {
           <Route path="captacion" element={<Captacion />} />
           <Route path="calculadora" element={<Calculadora />} />
           <Route path="actividad" element={<AuditLog />} />
+          <Route path="contratos" element={<Contratos />} />
         </Route>
       </Routes>
     </BrowserRouter>
