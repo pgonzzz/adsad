@@ -26,7 +26,10 @@ import supabase from '../db/supabase.js';
 const router = express.Router();
 
 const BUCKET = 'contratos';
-const DEFAULT_ALLOWED = ['carles@pisalia.es'];
+// Allowlist por defecto — los dueños del módulo. Si en algún momento hace
+// falta añadir a otro usuario sin tener que redeployar, basta con setear la
+// variable CONTRATOS_ALLOWED_EMAILS en Railway y sobrescribe esta lista.
+const DEFAULT_ALLOWED = ['carles@pisalia.es', 'paul@pisalia.es'];
 
 function getAllowedEmails() {
   const raw = (process.env.CONTRATOS_ALLOWED_EMAILS || '').trim();
