@@ -46,11 +46,15 @@ try {
 
 const { BACKEND_URL, AGENT_KEY, POLL_INTERVAL, HEARTBEAT_INTERVAL } = require('./config');
 const { scrapeIdealista } = require('./scraper/idealista');
-const { initWhatsApp, sendMessage, isConnected, getCurrentQR } = require('./whatsapp/client');
+const { initWhatsApp, sendMessage, isConnected, getCurrentQR, logoutWhatsApp } = require('./whatsapp/client');
 
 // ─── Estado local ─────────────────────────────────────────────────────────────
 let currentQRBase64 = null;
 let taskRunning = false;
+// Evita procesar dos logouts simultáneos si el flag del backend se leyera dos
+// veces antes de que el primero termine (p.ej. si el heartbeat volviera a
+// correr mientras estamos re-inicializando).
+let logoutInProgress = false;
 
 // ─── Control de envíos WhatsApp ───────────────────────────────────────────────
 const DAILY_LIMIT = 50;
@@ -102,10 +106,33 @@ const api = axios.create({
 // ─── Heartbeat ────────────────────────────────────────────────────────────────
 async function sendHeartbeat() {
   try {
-    await api.post('/api/captacion/agent/heartbeat', {
+    const { data } = await api.post('/api/captacion/agent/heartbeat', {
       whatsapp_connected: isConnected(),
       qr_code: currentQRBase64,
     });
+
+    // El backend nos indica si el usuario ha pulsado "Desconectar WhatsApp"
+    // en el CRM. El flag es "consume on read": en cuanto se lo devuelve al
+    // agente, el backend lo resetea, así que sólo actuamos una vez.
+    if (data?.disconnect_requested && !logoutInProgress) {
+      logoutInProgress = true;
+      console.log('[Heartbeat] El CRM ha solicitado desvincular WhatsApp.');
+      // Reseteamos el QR inmediatamente para que el heartbeat siguiente no
+      // envíe un QR antiguo al CRM (el nuevo se generará al re-inicializar).
+      currentQRBase64 = null;
+      try {
+        const result = await logoutWhatsApp();
+        if (result.ok) {
+          console.log('[Heartbeat] WhatsApp desvinculado. Esperando al nuevo QR...');
+        } else {
+          console.error('[Heartbeat] Error en logout:', result.error);
+        }
+      } catch (err) {
+        console.error('[Heartbeat] Excepción durante logout:', err.message);
+      } finally {
+        logoutInProgress = false;
+      }
+    }
   } catch (err) {
     console.warn('[Heartbeat] Error:', err.message);
   }

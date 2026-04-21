@@ -460,13 +460,46 @@ router.get('/campanas/:id/active-task', authMiddleware, async (req, res) => {
 // POST /captacion/agent/heartbeat — el agente envía su estado cada 10s
 router.post('/agent/heartbeat', agentAuthMiddleware, async (req, res) => {
   const { whatsapp_connected, qr_code } = req.body;
+
+  // Si hay una petición pendiente de desvincular WhatsApp (el usuario pulsó
+  // "Desconectar" en el CRM), devolvémosela al agente y la limpiamos —
+  // "consume on read", para que sólo actúe una vez. El agente llamará
+  // logoutWhatsApp() y el siguiente heartbeat ya vendrá con
+  // whatsapp_connected=false + un qr_code nuevo.
+  const prev = agentStates.get(req.agentUserId);
+  const disconnectRequested = !!prev?.disconnect_requested;
+
   agentStates.set(req.agentUserId, {
     user_id: req.agentUserId,
     online: true,
     whatsapp_connected: !!whatsapp_connected,
     qr_code: qr_code || null,
     last_seen: new Date().toISOString(),
+    disconnect_requested: false,
   });
+  res.json({ ok: true, disconnect_requested: disconnectRequested });
+});
+
+// POST /captacion/agent/disconnect — el usuario pulsa "Desconectar WhatsApp"
+// en el CRM. Marcamos un flag en el estado del agente; el agente lo recoge
+// en el siguiente heartbeat (≤10s) y se desvincula. Si el agente está offline,
+// el flag queda pendiente hasta que vuelva — es idempotente.
+router.post('/agent/disconnect', authMiddleware, async (req, res) => {
+  const prev = agentStates.get(req.user.id);
+  if (!prev) {
+    // Si nunca ha enviado heartbeat sembramos un estado mínimo para que al
+    // arrancar el agente recoja el flag inmediatamente.
+    agentStates.set(req.user.id, {
+      user_id: req.user.id,
+      online: false,
+      whatsapp_connected: false,
+      qr_code: null,
+      last_seen: null,
+      disconnect_requested: true,
+    });
+  } else {
+    agentStates.set(req.user.id, { ...prev, disconnect_requested: true });
+  }
   res.json({ ok: true });
 });
 

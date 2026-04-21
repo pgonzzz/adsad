@@ -6,12 +6,22 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const QRCode = require('qrcode');
+const fs = require('fs');
+const path = require('path');
 
 let client = null;
 let connected = false;
 let currentQR = null;
 let onIncomingMessage = null; // callback para mensajes recibidos
 let onMessageAck = null; // callback para actualizaciones de estado (enviado/entregado/leido)
+// Guardamos los callbacks de init para poder re-inicializar el cliente tras
+// un logout manual sin que el caller tenga que volver a pasarlos.
+let savedOnQR = null;
+let savedOnReady = null;
+// Flag para distinguir una desconexión intencional (usuario pulsa "Desconectar"
+// en el CRM) de una desconexión inesperada (sesión expirada, móvil desvinculado,
+// etc.). En la intencional NO queremos cerrar el proceso.
+let intentionalLogout = false;
 
 /**
  * Inicializa el cliente de WhatsApp.
@@ -23,6 +33,8 @@ let onMessageAck = null; // callback para actualizaciones de estado (enviado/ent
 function initWhatsApp(onQR, onReady, onMessage, onAck) {
   onIncomingMessage = onMessage;
   onMessageAck = onAck;
+  savedOnQR = onQR;
+  savedOnReady = onReady;
   client = new Client({
     authStrategy: new LocalAuth({ dataPath: './wa_session' }),
     puppeteer: {
@@ -65,10 +77,18 @@ function initWhatsApp(onQR, onReady, onMessage, onAck) {
   // La forma más robusta de recuperarse es salir del proceso y dejar que
   // launchd reinicie el agente limpio. Al arrancar de nuevo, whatsapp-web.js
   // detecta la sesión inválida y genera un QR nuevo que aparece en el CRM.
+  //
+  // EXCEPCIÓN: si la desconexión la inició el usuario desde el CRM
+  // (intentionalLogout=true), logoutWhatsApp() se encarga de borrar la sesión
+  // y re-inicializar el cliente in-process, sin matar el proceso.
   client.on('disconnected', (reason) => {
     connected = false;
     currentQR = null;
     console.error('[WhatsApp] Desconectado:', reason);
+    if (intentionalLogout) {
+      console.log('[WhatsApp] Desconexión intencional — el cliente se re-inicializará en caliente, no reinicio proceso.');
+      return;
+    }
     console.error('[WhatsApp] El proceso se va a cerrar en 5s para que launchd reinicie el agente limpio...');
     setTimeout(() => process.exit(1), 5000);
   });
@@ -78,6 +98,10 @@ function initWhatsApp(onQR, onReady, onMessage, onAck) {
     connected = false;
     currentQR = null;
     console.error('[WhatsApp] Fallo de autenticación:', msg);
+    if (intentionalLogout) {
+      console.log('[WhatsApp] Logout intencional en curso — ignorando auth_failure.');
+      return;
+    }
     console.error('[WhatsApp] El proceso se va a cerrar en 5s para que launchd reinicie el agente limpio...');
     setTimeout(() => process.exit(1), 5000);
   });
@@ -182,4 +206,64 @@ function getCurrentQR() {
   return currentQR;
 }
 
-module.exports = { initWhatsApp, sendMessage, isConnected, getCurrentQR };
+/**
+ * Desvincula WhatsApp del número actual y re-inicializa el cliente para que
+ * genere un QR nuevo. Se llama desde el loop del heartbeat cuando el backend
+ * responde con disconnect_requested:true (el usuario pulsó "Desconectar
+ * WhatsApp" en el CRM).
+ *
+ * Flujo:
+ * 1. client.logout() — desvincula del móvil en WhatsApp
+ * 2. client.destroy() — cierra el puppeteer
+ * 3. Borra ./wa_session — elimina cualquier credencial persistida
+ * 4. initWhatsApp() — vuelve a arrancar el cliente con los mismos callbacks
+ *    → esto dispara el evento 'qr' y el próximo heartbeat envía el QR nuevo
+ *      al CRM, que re-aparece en el banner naranja.
+ */
+async function logoutWhatsApp() {
+  if (!client) {
+    console.warn('[WhatsApp] logoutWhatsApp llamado sin cliente inicializado.');
+    return { ok: false, error: 'no_client' };
+  }
+
+  console.log('[WhatsApp] Logout solicitado desde el CRM — desvinculando número...');
+  intentionalLogout = true;
+
+  try { await client.logout(); }
+  catch (err) { console.warn('[WhatsApp] client.logout() falló (puede que ya estuviera desvinculado):', err.message); }
+
+  try { await client.destroy(); }
+  catch (err) { console.warn('[WhatsApp] client.destroy() falló:', err.message); }
+
+  connected = false;
+  currentQR = null;
+  client = null;
+
+  // Limpiar el directorio de sesión. LocalAuth guarda dentro en
+  // session-<clientId>/, pero para asegurar un arranque limpio borramos
+  // el directorio entero.
+  try {
+    const sessionDir = path.join(process.cwd(), 'wa_session');
+    if (fs.existsSync(sessionDir)) {
+      fs.rmSync(sessionDir, { recursive: true, force: true });
+      console.log('[WhatsApp] Directorio de sesión borrado:', sessionDir);
+    }
+  } catch (err) {
+    console.warn('[WhatsApp] Error borrando directorio de sesión:', err.message);
+  }
+
+  // Re-inicializar el cliente para que genere un nuevo QR
+  console.log('[WhatsApp] Re-inicializando cliente para generar un nuevo QR...');
+  try {
+    initWhatsApp(savedOnQR, savedOnReady, onIncomingMessage, onMessageAck);
+  } catch (err) {
+    console.error('[WhatsApp] Error re-inicializando el cliente:', err.message);
+    intentionalLogout = false;
+    return { ok: false, error: err.message };
+  }
+
+  intentionalLogout = false;
+  return { ok: true };
+}
+
+module.exports = { initWhatsApp, sendMessage, isConnected, getCurrentQR, logoutWhatsApp };

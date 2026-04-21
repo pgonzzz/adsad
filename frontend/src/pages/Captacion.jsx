@@ -236,14 +236,42 @@ function extractFromIdealistaUrl(url) {
 // Muestra al usuario un botón de descarga de instalador automático para su
 // SO. El instalador ya lleva embebida la clave única del usuario, así que
 // no hace falta tocar Terminal ni pegar claves. Solo doble clic y listo.
-function AgentSetupModal({ open, onClose, agentStatus }) {
+function AgentSetupModal({ open, onClose, agentStatus, onStatusRefresh }) {
   const [keyData, setKeyData] = useState(null);
   const [downloading, setDownloading] = useState(null);
   const [downloaded, setDownloaded] = useState(null);
+  const [disconnecting, setDisconnecting] = useState(false);
 
   // ¿El agente ya está conectado y listo?
   const alreadyRunning = !!(agentStatus?.online && agentStatus?.whatsapp_connected);
   const runningButNoWa = !!(agentStatus?.online && !agentStatus?.whatsapp_connected);
+
+  // Desvincula WhatsApp del número actual. El agente lo recoge en su próximo
+  // heartbeat (≤10s) y vuelve a generar un QR para el número nuevo.
+  const handleDisconnectWA = async () => {
+    const ok = window.confirm(
+      '¿Seguro que quieres desvincular WhatsApp del número actual?\n\n' +
+      'El agente se desconectará y en unos segundos aparecerá un nuevo QR ' +
+      'en la página de Captación para que vincules otro número.'
+    );
+    if (!ok) return;
+    setDisconnecting(true);
+    try {
+      await captacionApi.disconnectWhatsApp();
+      // Refrescar un par de veces para que la UI reaccione rápido (el agente
+      // tarda hasta ~10s en recoger el flag y marcar whatsapp_connected=false).
+      if (onStatusRefresh) {
+        onStatusRefresh();
+        setTimeout(onStatusRefresh, 3000);
+        setTimeout(onStatusRefresh, 8000);
+        setTimeout(onStatusRefresh, 15000);
+      }
+    } catch (err) {
+      alert('Error desconectando WhatsApp: ' + (err.response?.data?.error || err.message || 'desconocido'));
+    } finally {
+      setDisconnecting(false);
+    }
+  };
 
   // Auto-detectar el SO del navegador
   const detectedOS = (() => {
@@ -280,7 +308,7 @@ function AgentSetupModal({ open, onClose, agentStatus }) {
         {alreadyRunning && (
           <div className="p-3 bg-green-50 border-2 border-green-400 rounded-lg flex items-start gap-2">
             <Check size={18} className="text-green-700 mt-0.5 shrink-0" />
-            <div>
+            <div className="flex-1">
               <p className="text-green-900 font-semibold mb-0.5">
                 Tu agente ya está conectado y funcionando ✓
               </p>
@@ -290,6 +318,27 @@ function AgentSetupModal({ open, onClose, agentStatus }) {
                 para usuarios que van a conectar el agente por primera vez.
               </p>
             </div>
+          </div>
+        )}
+
+        {/* Cambiar de número de WhatsApp — visible sólo si WA está vinculado */}
+        {alreadyRunning && (
+          <div className="p-3 bg-white border border-gray-200 rounded-lg">
+            <p className="text-gray-900 font-semibold text-sm mb-1">
+              Cambiar el número de WhatsApp
+            </p>
+            <p className="text-gray-600 text-xs leading-relaxed mb-3">
+              Si quieres que los mensajes se envíen desde otro teléfono, desvincula
+              el número actual y aparecerá un QR nuevo para escanear con el móvil
+              nuevo. Los envíos en curso se detendrán hasta que vincules el nuevo.
+            </p>
+            <button
+              onClick={handleDisconnectWA}
+              disabled={disconnecting}
+              className="px-3 py-1.5 text-xs font-medium text-red-700 bg-white border border-red-300 rounded-md hover:bg-red-50 disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {disconnecting ? 'Desconectando…' : 'Desconectar WhatsApp'}
+            </button>
           </div>
         )}
 
@@ -2594,6 +2643,7 @@ export default function Captacion() {
         open={agentSetupOpen}
         onClose={() => setAgentSetupOpen(false)}
         agentStatus={agentStatus}
+        onStatusRefresh={loadAgentStatus}
       />
 
       {/* Modal de plantillas */}
