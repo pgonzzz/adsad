@@ -46,7 +46,7 @@ try {
 
 const { BACKEND_URL, AGENT_KEY, POLL_INTERVAL, HEARTBEAT_INTERVAL } = require('./config');
 const { scrapeIdealista } = require('./scraper/idealista');
-const { initWhatsApp, sendMessage, isConnected, getCurrentQR, logoutWhatsApp } = require('./whatsapp/client');
+const { initWhatsApp, sendMessage, isConnected, getCurrentQR, logoutWhatsApp, hasRepliedSinceLastOutbound } = require('./whatsapp/client');
 
 // ─── Estado local ─────────────────────────────────────────────────────────────
 let currentQRBase64 = null;
@@ -370,9 +370,31 @@ async function handleWhatsAppTask(tarea) {
 
   for (const lead of leads) {
     // — Solo follow-up a leads que NO han respondido —
+    // 1º cheque barato: el estado del lead en el snapshot del payload.
     if (tipo === 'whatsapp_followup' && lead.estado === 'respondido') {
       omitidos.push(lead.id);
       continue;
+    }
+
+    // 2º cheque autoritativo: leemos el chat de WhatsApp del lead en vivo.
+    // El payload es un snapshot del momento en que se creó la tarea, pero
+    // entre ese momento y ahora puede haber pasado horas: si el lead ha
+    // escrito CUALQUIER mensaje después de nuestro último envío, no le
+    // mandamos el follow-up. Si no podemos comprobarlo (WA desconectado,
+    // chat inexistente, error) tampoco enviamos, por prudencia.
+    if (tipo === 'whatsapp_followup') {
+      const replied = await hasRepliedSinceLastOutbound(lead.telefono);
+      if (replied === true) {
+        console.log(`[WA] ${lead.telefono} ha contestado desde el primer envío — omitiendo follow-up.`);
+        omitidos.push(lead.id);
+        continue;
+      }
+      if (replied === null) {
+        console.warn(`[WA] No pude verificar respuestas de ${lead.telefono} — omitiendo follow-up por prudencia.`);
+        omitidos.push(lead.id);
+        continue;
+      }
+      // replied === false → seguimos, es seguro mandar el follow-up.
     }
 
     // — Doble seguridad: NO reenviar a leads ya contactados en envío inicial —
