@@ -10,6 +10,7 @@ import LoadingSpinner from '../components/LoadingSpinner';
 import Combobox, { ComboboxMunicipios } from '../components/Combobox';
 import TagsInput, { TagsDisplay } from '../components/TagsInput';
 import NotesTimeline from '../components/NotesTimeline';
+import ContratosSection from '../components/ContratosSection';
 import { PROVINCIAS } from '../data/municipios';
 
 const TIPOS = ['piso', 'local', 'nave', 'edificio', 'solar', 'otro'];
@@ -331,6 +332,11 @@ export default function InversorDetalle() {
             ))}
           </div>
         )}
+      </div>
+
+      {/* Contratos asociados — invisible si el usuario no está en la allowlist */}
+      <div className="mt-6">
+        <ContratosSection inversorId={id} />
       </div>
 
       {/* Modal petición */}

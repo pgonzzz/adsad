@@ -11,11 +11,13 @@ import {
   Search,
   Calculator,
   History,
+  FileText,
   X,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import useContratosAccess from '../hooks/useContratosAccess';
 
-const nav = [
+const baseNav = [
   { to: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/inversores', label: 'Inversores', icon: Users },
   { to: '/peticiones', label: 'Peticiones', icon: ClipboardList },
@@ -30,6 +32,13 @@ const nav = [
 
 export default function Sidebar({ open = false, onClose = () => {} }) {
   const navigate = useNavigate();
+  const hasContratosAccess = useContratosAccess();
+
+  // Entrada "Contratos" solo visible para emails allowlisted (Carles + Paul).
+  // La seguridad real la hace el backend; esto es sólo UX.
+  const nav = hasContratosAccess
+    ? [...baseNav, { to: '/contratos', label: 'Contratos', icon: FileText }]
+    : baseNav;
 
   const handleLogout = async () => {
     await supabase.auth.signOut();

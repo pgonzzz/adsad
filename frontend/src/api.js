@@ -98,6 +98,85 @@ export const telegramApi = {
   generateText: (propiedad) => post('/telegram/generate-text', { propiedad }),
 };
 
+// Helper: convierte un File del navegador a base64 (sin el prefijo data:...)
+export function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result;
+      const base64 = String(result).split('base64,')[1] || String(result);
+      resolve(base64);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+export const contratosApi = {
+  // Comprueba si el usuario actual tiene acceso al módulo. 200 → true, 403 → false.
+  checkAccess: () => api.get('/contratos/access').then(() => true).catch(() => false),
+
+  // Plantillas
+  getPlantillas: () => get('/contratos/plantillas'),
+  getPlantilla: (id) => get(`/contratos/plantillas/${id}`),
+  createPlantilla: async ({ nombre, descripcion, file }) => {
+    const archivo_base64 = await fileToBase64(file);
+    return post('/contratos/plantillas', {
+      nombre,
+      descripcion,
+      archivo_base64,
+      archivo_nombre: file.name,
+    });
+  },
+  deletePlantilla: (id) => del(`/contratos/plantillas/${id}`),
+  downloadPlantilla: async (id, nombre) => {
+    const response = await api.get(`/contratos/plantillas/${id}/download`, { responseType: 'blob' });
+    triggerBlobDownload(response.data, `${nombre}.docx`);
+  },
+  generateFromPlantilla: async (id, valores, nombreArchivo) => {
+    const response = await api.post(
+      `/contratos/plantillas/${id}/generate`,
+      { valores },
+      { responseType: 'blob' }
+    );
+    triggerBlobDownload(response.data, `${nombreArchivo}.docx`);
+  },
+
+  // Contratos firmados
+  getFirmados: (params) => get('/contratos/firmados', params),
+  createFirmado: async ({ nombre, descripcion, file, plantilla_id, valores, inversor_id, proveedor_id }) => {
+    const archivo_base64 = await fileToBase64(file);
+    return post('/contratos/firmados', {
+      nombre,
+      descripcion,
+      archivo_base64,
+      archivo_nombre: file.name,
+      archivo_mime: file.type,
+      plantilla_id,
+      valores,
+      inversor_id,
+      proveedor_id,
+    });
+  },
+  deleteFirmado: (id) => del(`/contratos/firmados/${id}`),
+  downloadFirmado: async (id, nombreArchivo) => {
+    const response = await api.get(`/contratos/firmados/${id}/download`, { responseType: 'blob' });
+    triggerBlobDownload(response.data, nombreArchivo);
+  },
+};
+
+function triggerBlobDownload(blobData, filename) {
+  const blob = blobData instanceof Blob ? blobData : new Blob([blobData]);
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+}
+
 export const captacionApi = {
   getCampanas: () => get('/captacion/campanas'),
   createCampana: (data) => post('/captacion/campanas', data),

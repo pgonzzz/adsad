@@ -16,6 +16,7 @@ import telegramRouter, { handleBotMessage } from './routes/telegram.js';
 import generatePropertyRouter from './routes/generate-property.js';
 import recordatoriosRouter from './routes/recordatorios.js';
 import notificacionesRouter from './routes/notificaciones.js';
+import contratosRouter from './routes/contratos.js';
 import { startScheduler } from './scheduler.js';
 
 dotenv.config();
@@ -82,6 +83,7 @@ app.use('/api/telegram', authMiddleware, telegramRouter);
 app.use('/api/propiedades/generate', authMiddleware, generatePropertyRouter);
 app.use('/api/recordatorios', authMiddleware, recordatoriosRouter);
 app.use('/api/notificaciones', authMiddleware, notificacionesRouter);
+app.use('/api/contratos', authMiddleware, contratosRouter);
 // Captación: las rutas del agente no llevan authMiddleware (usan AGENT_KEY propia)
 app.use('/api/captacion', captacionRouter);
 
