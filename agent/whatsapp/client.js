@@ -266,4 +266,57 @@ async function logoutWhatsApp() {
   return { ok: true };
 }
 
-module.exports = { initWhatsApp, sendMessage, isConnected, getCurrentQR, logoutWhatsApp };
+/**
+ * Comprueba, leyendo directamente el chat de WhatsApp del contacto, si el
+ * lead nos ha escrito algo DESPUÉS de nuestro último mensaje saliente.
+ *
+ * Se usa antes de enviar un follow-up automatizado: si el cliente ya contestó
+ * a nuestro primer mensaje, no queremos spamearle con el segundo.
+ *
+ * Lee el estado real de la conversación en WhatsApp (no depende de si el
+ * webhook /leads/respuesta acertó a marcar el lead como 'respondido' en la
+ * DB), así que es más estricto que fiarse del estado en la base de datos.
+ *
+ * @param {string} phone — número en formato español (se normaliza internamente)
+ * @returns {Promise<boolean | null>}
+ *   - true  → el lead nos ha escrito después de nuestro último saliente
+ *   - false → no ha escrito nada desde entonces, seguro mandar follow-up
+ *   - null  → no se pudo comprobar (sin conexión, chat inexistente, error).
+ *             El caller debe tratar null como "no enviar" por prudencia.
+ */
+async function hasRepliedSinceLastOutbound(phone) {
+  if (!connected || !client) return null;
+  const chatId = formatPhone(phone);
+  if (!chatId) return null;
+  try {
+    const chat = await client.getChatById(chatId);
+    // Cargamos los 100 últimos mensajes. Suficiente: un follow-up se dispara
+    // 3-7 días después del primer envío, y los leads no suelen tener una
+    // conversación tan densa con nosotros como para que el primer saliente
+    // salga de ese rango.
+    const messages = await chat.fetchMessages({ limit: 100 });
+    if (!messages || messages.length === 0) return null;
+
+    // Último mensaje saliente (nuestro último envío a este contacto).
+    let lastOutboundTs = 0;
+    for (const m of messages) {
+      if (m.fromMe && typeof m.timestamp === 'number' && m.timestamp > lastOutboundTs) {
+        lastOutboundTs = m.timestamp;
+      }
+    }
+    // Raro — no hay saliente en los últimos 100 mensajes. Puede pasar si el
+    // histórico con este contacto es muy denso. Devolvemos null para que el
+    // caller decida (política conservadora: no enviar).
+    if (lastOutboundTs === 0) return null;
+
+    const hasInboundAfter = messages.some(
+      (m) => !m.fromMe && typeof m.timestamp === 'number' && m.timestamp > lastOutboundTs
+    );
+    return hasInboundAfter;
+  } catch (err) {
+    console.warn(`[WhatsApp] No pude leer el chat de ${phone}:`, err.message);
+    return null;
+  }
+}
+
+module.exports = { initWhatsApp, sendMessage, isConnected, getCurrentQR, logoutWhatsApp, hasRepliedSinceLastOutbound };
