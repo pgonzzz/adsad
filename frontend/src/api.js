@@ -110,6 +110,10 @@ export const captacionApi = {
   deleteLead: (id) => del(`/captacion/leads/${id}`),
   getAgentStatus: () => get('/captacion/agent/status'),
   getMyAgentKey: () => get('/captacion/agent/my-key'),
+  // Marca un flag en el backend para que el agente desvincule WhatsApp en
+  // el siguiente heartbeat. Tras ~10-20s el CRM verá whatsapp_connected=false
+  // y el QR nuevo volverá a aparecer en el banner.
+  disconnectWhatsApp: () => post('/captacion/agent/disconnect', {}),
   // Descarga el instalador personalizado para el SO indicado ('windows'/'mac').
   // Usa axios con auth para que el backend sepa qué clave embeder, recibe
   // el fichero como blob y dispara la descarga en el navegador.
