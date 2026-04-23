@@ -63,24 +63,40 @@ SET user_id = (SELECT id FROM auth.users ORDER BY created_at ASC LIMIT 1)
 WHERE user_id IS NULL;
 
 -- ─── 5. Trigger que auto-crea agent_key al crear un usuario nuevo ─
-CREATE OR REPLACE FUNCTION create_agent_key_on_signup()
+-- Notas importantes (evita "Database error saving new user" al invitar):
+--   * SECURITY DEFINER + SET search_path = public, pg_temp. Sin esto, el
+--     rol supabase_auth_admin ejecuta el trigger con un search_path que no
+--     incluye public y la referencia a la tabla falla.
+--   * Nombres cualificados por esquema (public.captacion_agent_keys).
+--   * Bloque EXCEPTION: si la inserción falla por cualquier motivo, se
+--     loguea un WARNING pero NO se aborta la creación del usuario.
+--   * GRANT USAGE al rol supabase_auth_admin por si la función se creara
+--     bajo otro propietario en el futuro.
+CREATE OR REPLACE FUNCTION public.create_agent_key_on_signup()
 RETURNS TRIGGER
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public, pg_temp
 AS $$
 BEGIN
-  INSERT INTO captacion_agent_keys (user_id, nombre)
+  INSERT INTO public.captacion_agent_keys (user_id, nombre)
   VALUES (
     NEW.id,
     COALESCE(NEW.raw_user_meta_data->>'full_name', NEW.email)
   )
   ON CONFLICT (user_id) DO NOTHING;
   RETURN NEW;
+EXCEPTION WHEN OTHERS THEN
+  RAISE WARNING 'create_agent_key_on_signup falló para %: %', NEW.id, SQLERRM;
+  RETURN NEW;
 END;
 $$;
+
+GRANT USAGE ON SCHEMA public TO supabase_auth_admin;
+GRANT INSERT, SELECT ON public.captacion_agent_keys TO supabase_auth_admin;
 
 DROP TRIGGER IF EXISTS on_auth_user_created_captacion ON auth.users;
 CREATE TRIGGER on_auth_user_created_captacion
   AFTER INSERT ON auth.users
   FOR EACH ROW
-  EXECUTE FUNCTION create_agent_key_on_signup();
+  EXECUTE FUNCTION public.create_agent_key_on_signup();
