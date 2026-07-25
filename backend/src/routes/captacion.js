@@ -60,6 +60,72 @@ async function agentAuthMiddleware(req, res, next) {
   next();
 }
 
+/**
+ * Aplica refrescos de precio sobre leads que ya teníamos.
+ *
+ * El agente no abre la ficha de estos anuncios (por eso no gasta peticiones
+ * protegidas de Idealista), solo lee el precio de la tarjeta del listado.
+ * Aquí actualizamos el precio si ha cambiado y, cuando baja, dejamos una nota
+ * en la ficha del lead para que la bajada se vea en el CRM.
+ *
+ * @param {string} campana_id
+ * @param {Array<{url_anuncio: string, precio: number}>} refrescos
+ */
+async function aplicarRefrescosPrecio(campana_id, refrescos) {
+  const urls = [...new Set(refrescos.map(r => r.url_anuncio).filter(Boolean))];
+  if (urls.length === 0) return;
+
+  const { data: actuales, error } = await supabase
+    .from('captacion_leads')
+    .select('id, url_anuncio, precio, comentarios')
+    .eq('campana_id', campana_id)
+    .in('url_anuncio', urls);
+
+  if (error) {
+    console.warn('[Captacion] Error leyendo leads para refresco de precio:', error.message);
+    return;
+  }
+
+  const porUrl = new Map((actuales || []).map(l => [l.url_anuncio, l]));
+  let actualizados = 0;
+  let bajadas = 0;
+
+  for (const r of refrescos) {
+    const lead = porUrl.get(r.url_anuncio);
+    if (!lead) continue;
+
+    const nuevo = r.precio;
+    const viejo = lead.precio;
+    if (!nuevo || !viejo || nuevo === viejo) continue;
+
+    const update = { precio: nuevo };
+
+    if (nuevo < viejo) {
+      const pct = Math.round(((viejo - nuevo) / viejo) * 100);
+      update.comentarios = [...(lead.comentarios || []), {
+        id: `precio-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        texto: `Bajada de precio: ${viejo.toLocaleString('es-ES')} € → ${nuevo.toLocaleString('es-ES')} € (-${pct}%)`,
+        usuario: 'Agente de captación',
+        email: '',
+        created_at: new Date().toISOString(),
+      }];
+      bajadas++;
+    }
+
+    const { error: upErr } = await supabase
+      .from('captacion_leads')
+      .update(update)
+      .eq('id', lead.id);
+
+    if (upErr) console.warn(`[Captacion] Error actualizando precio de ${r.url_anuncio}:`, upErr.message);
+    else actualizados++;
+  }
+
+  if (actualizados > 0) {
+    console.log(`[Captacion] Refresco de precios: ${actualizados} actualizados, ${bajadas} bajadas`);
+  }
+}
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // CAMPAÑAS
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -702,7 +768,32 @@ router.get('/agent/poll', agentAuthMiddleware, async (req, res) => {
     .update({ estado: 'en_proceso' })
     .eq('id', data.id);
 
-  res.json({ task: data });
+  // ── Anuncios ya conocidos ───────────────────────────────────────────────
+  // Para tareas de scrape adjuntamos las URLs que ya tenemos en la campaña.
+  // El agente las usa para NO abrir la ficha de detalle ni pulsar "ver
+  // teléfono" en anuncios que ya están en la BD, que es de largo la mayor
+  // fuente de peticiones (y por tanto de bloqueos/CAPTCHA de Idealista).
+  // Sigue leyendo el precio de la tarjeta del listado, que es gratis, para
+  // detectar bajadas de precio.
+  let task = data;
+  if (data.tipo === 'scrape' && data.payload?.campana_id) {
+    const { data: existing, error: urlsError } = await supabase
+      .from('captacion_leads')
+      .select('url_anuncio')
+      .eq('campana_id', data.payload.campana_id)
+      .not('url_anuncio', 'is', null)
+      .limit(50000); // explícito: el default de PostgREST (1000) truncaría en silencio
+
+    if (urlsError) {
+      console.warn('[Captacion] No se pudieron cargar las URLs conocidas:', urlsError.message);
+    } else {
+      const urls_conocidas = (existing || []).map(l => l.url_anuncio).filter(Boolean);
+      task = { ...data, payload: { ...data.payload, urls_conocidas } };
+      console.log(`[Captacion] Tarea scrape ${data.id}: ${urls_conocidas.length} anuncios ya conocidos`);
+    }
+  }
+
+  res.json({ task });
 });
 
 // POST /captacion/agent/result — el agente publica el resultado de una tarea.
@@ -741,14 +832,28 @@ router.post('/agent/result', agentAuthMiddleware, async (req, res) => {
     const campana_id = tarea?.payload?.campana_id;
 
     if (campana_id) {
+      // ── Refrescos de precio ───────────────────────────────────────────
+      // El agente manda {refresco:true, url_anuncio, precio} para anuncios
+      // que ya conocíamos: no ha abierto la ficha, solo ha leído el precio
+      // de la tarjeta del listado. Actualizamos el precio si ha cambiado y
+      // dejamos una nota cuando baja, que es la señal que interesa.
+      const refrescos = leads.filter(l => l.refresco && l.url_anuncio);
+      if (refrescos.length > 0) {
+        await aplicarRefrescosPrecio(campana_id, refrescos);
+      }
+
+      // A partir de aquí, solo los leads realmente scrapeados (ficha abierta)
+      const leadsScrapeados = leads.filter(l => !l.refresco);
+
       // Deduplicar por url_anuncio ya existente en la campaña
       const { data: existing } = await supabase
         .from('captacion_leads')
         .select('url_anuncio')
-        .eq('campana_id', campana_id);
+        .eq('campana_id', campana_id)
+        .limit(50000); // explícito: el default de PostgREST (1000) truncaría en silencio
 
       const existingUrls = new Set((existing || []).map(l => l.url_anuncio).filter(Boolean));
-      const newLeads = leads
+      const newLeads = leadsScrapeados
         .filter(l => !l.url_anuncio || !existingUrls.has(l.url_anuncio))
         .map(l => ({ ...l, campana_id }));
 

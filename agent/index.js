@@ -306,6 +306,25 @@ async function handleScrapeTask(tarea) {
     // Callback que el scraper llama en checkpoints para saber si debe parar
     const shouldAbort = () => cancelledByUser;
 
+    // Refrescos de precio de anuncios ya conocidos: van en lote y no cuentan
+    // como leads nuevos. El backend los distingue por el flag `refresco`.
+    const onRefrescos = async (lote) => {
+      try {
+        const resp = await api.post('/api/captacion/agent/result', {
+          tarea_id: tarea.id,
+          tipo: 'scrape',
+          partial: true,
+          leads: lote,
+        });
+        if (resp.data?.cancelled) {
+          cancelledByUser = true;
+          console.log('[Task] Usuario pulsó pausa — abortando scraping en el próximo checkpoint.');
+        }
+      } catch (err) {
+        console.warn('[Task] Error enviando refrescos de precio:', err.message);
+      }
+    };
+
     leads = await scrapeIdealista({
       url_inicial: payload.url_inicial,
       poblacion: payload.poblacion,
@@ -314,7 +333,8 @@ async function handleScrapeTask(tarea) {
       precio_min: payload.precio_min,
       precio_max: payload.precio_max,
       maxPages: payload.max_paginas || 3,
-    }, onLead, shouldAbort);
+      urls_conocidas: payload.urls_conocidas || [],
+    }, onLead, shouldAbort, onRefrescos);
   } catch (err) {
     error = err.message;
     console.error('[Task] Error en scraping:', err.message);

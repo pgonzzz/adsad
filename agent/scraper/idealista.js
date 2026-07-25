@@ -654,15 +654,48 @@ async function extractListingsFromPage(page, precioMin, precioMax) {
  * @param {number} params.precio_min
  * @param {number} params.precio_max
  * @param {number} params.maxPages
+ * @param {string[]} [params.urls_conocidas] — anuncios que el CRM ya tiene.
+ *        No se les abre la ficha de detalle ni se pulsa "ver teléfono": es la
+ *        principal fuente de peticiones y por tanto de bloqueos/CAPTCHA. De
+ *        ellos solo se relee el precio de la tarjeta del listado, que es gratis.
  * @param {(lead: object) => Promise<void>} [onLead] — callback opcional,
  *        llamado cada vez que se scrapea un nuevo lead (para streaming al CRM)
+ * @param {() => boolean} [shouldAbort] — checkpoint de cancelación
+ * @param {(refrescos: object[]) => Promise<void>} [onRefrescos] — callback
+ *        opcional para enviar en lote los refrescos de precio de anuncios ya
+ *        conocidos (se envían agrupados para no saturar el backend)
  * @returns {Promise<Array>}
  */
-async function scrapeIdealista(params, onLead, shouldAbort) {
+async function scrapeIdealista(params, onLead, shouldAbort, onRefrescos) {
   const maxPages = params.maxPages || 5;
   const leads = [];
 
-  console.log('[Scraper] Iniciando scraping Idealista:', params);
+  // Anuncios que el CRM ya tiene: nos saltamos su ficha de detalle
+  const knownUrls = new Set(params.urls_conocidas || []);
+
+  // Refrescos de precio pendientes de enviar (se vacían por lotes)
+  let refrescosPendientes = [];
+  let saltados = 0;
+  const FLUSH_CADA = 25;
+
+  async function flushRefrescos(force = false) {
+    if (!onRefrescos) { refrescosPendientes = []; return; }
+    if (refrescosPendientes.length === 0) return;
+    if (!force && refrescosPendientes.length < FLUSH_CADA) return;
+    const lote = refrescosPendientes;
+    refrescosPendientes = [];
+    try {
+      await onRefrescos(lote);
+    } catch (e) {
+      console.warn('[Scraper] Error enviando refrescos de precio:', e.message);
+    }
+  }
+
+  const paramsLog = { ...params, urls_conocidas: undefined };
+  console.log('[Scraper] Iniciando scraping Idealista:', paramsLog);
+  if (knownUrls.size > 0) {
+    console.log(`[Scraper] ${knownUrls.size} anuncios ya conocidos — se les saltará la ficha de detalle.`);
+  }
 
   // ── Conectar al Chrome del usuario (puerto 9222) ──────────────────────────
   let browser;
@@ -892,6 +925,20 @@ async function scrapeIdealista(params, onLead, shouldAbort) {
         if (params.precio_min && ld.precio && ld.precio < params.precio_min) continue;
         if (params.precio_max && ld.precio && ld.precio > params.precio_max) continue;
 
+        // ── Anuncio ya conocido ────────────────────────────────────────────
+        // No abrimos la ficha ni pulsamos "ver teléfono": ya tenemos esos
+        // datos en el CRM y son las peticiones que disparan los bloqueos.
+        // Sí aprovechamos el precio de la tarjeta, que ya está descargado,
+        // para detectar bajadas sin coste alguno.
+        if (knownUrls.has(ld.url)) {
+          saltados++;
+          if (ld.precio) {
+            refrescosPendientes.push({ refresco: true, url_anuncio: ld.url, precio: ld.precio });
+            await flushRefrescos();
+          }
+          continue;
+        }
+
         console.log(`[Scraper] [${i + 1}/${listingData.length}] ${ld.titulo || ld.url}`);
 
         let telefono = null;
@@ -963,6 +1010,10 @@ async function scrapeIdealista(params, onLead, shouldAbort) {
     }
 
   } finally {
+    // Enviar los refrescos de precio que queden pendientes, incluso si el
+    // scraping se abortó a media: son datos ya obtenidos y no cuestan nada.
+    try { await flushRefrescos(true); } catch {}
+
     if (ownBrowser) {
       await browser.close();
     } else {
@@ -971,7 +1022,13 @@ async function scrapeIdealista(params, onLead, shouldAbort) {
     }
   }
 
-  console.log(`[Scraper] Scraping completado. Total leads: ${leads.length}`);
+  const fichasAbiertas = leads.length;
+  console.log(`[Scraper] Scraping completado. Leads nuevos: ${fichasAbiertas} · Fichas ahorradas: ${saltados}`);
+  if (saltados > 0) {
+    const total = fichasAbiertas + saltados;
+    const pct = Math.round((saltados / total) * 100);
+    console.log(`[Scraper] Se ha evitado abrir el ${pct}% de las fichas (${saltados}/${total}) por ser anuncios ya conocidos.`);
+  }
   return leads;
 }
 
