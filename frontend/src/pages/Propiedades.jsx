@@ -8,7 +8,7 @@ import ConfirmDialog from '../components/ConfirmDialog';
 import { useToast } from '../components/Toast';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { supabase } from '../lib/supabase';
-import GeneratePropertyModal from '../components/GeneratePropertyModal';
+import GeneradorFicticias from '../components/GeneradorFicticias';
 import { ImagePlus, X, Loader2, SlidersHorizontal, ChevronDown, Paperclip, FileText, Sparkles } from 'lucide-react';
 import Combobox, { ComboboxMunicipios } from '../components/Combobox';
 import { PROVINCIAS } from '../data/municipios';
@@ -244,7 +244,7 @@ export default function Propiedades() {
             onClick={() => setGenerateModal(true)}
             className="flex items-center gap-1.5 px-3 py-2 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 whitespace-nowrap"
           >
-            <Sparkles size={14} /> Generar con IA
+            <Sparkles size={14} /> Generar ficticias
           </button>
           <button onClick={openCreate} className="px-3 sm:px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 whitespace-nowrap">
             + Nueva propiedad
@@ -344,6 +344,9 @@ export default function Propiedades() {
                 <div className="flex items-center gap-2">
                   <span className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-xs font-medium capitalize">{p.tipo}</span>
                   <Badge value={p.estado} />
+                  {(p.tags || []).some(t => ['ficticia', 'generada-ia'].includes(t)) && (
+                    <span className="px-2 py-0.5 bg-violet-100 text-violet-700 rounded-full text-xs font-medium">Ficticia</span>
+                  )}
                 </div>
               </div>
               <div className="text-sm text-gray-900">
@@ -422,7 +425,14 @@ export default function Propiedades() {
                     <FotosFan fotos={p.fotos} onClick={url => setLightbox(url)} />
                   </td>
                   <td className="px-4 py-3"><span className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-xs font-medium capitalize">{p.tipo}</span></td>
-                  <td className="px-4 py-3"><Badge value={p.estado} /></td>
+                  <td className="px-4 py-3">
+                    <span className="inline-flex items-center gap-1.5">
+                      <Badge value={p.estado} />
+                      {(p.tags || []).some(t => ['ficticia', 'generada-ia'].includes(t)) && (
+                    <span className="px-2 py-0.5 bg-violet-100 text-violet-700 rounded-full text-xs font-medium">Ficticia</span>
+                  )}
+                    </span>
+                  </td>
                   <td className="px-4 py-3 text-gray-900">
                     <div>
                       {p.provincia || p.poblacion ? (
@@ -578,12 +588,14 @@ export default function Propiedades() {
         </form>
       </Modal>
 
-      <GeneratePropertyModal
+      <GeneradorFicticias
         isOpen={generateModal}
         onClose={() => setGenerateModal(false)}
-        onCreated={(p) => {
+        onCreated={(p, fallidas) => {
+          setGenerateModal(false);
           loadPropiedades();
-          navigate(`/propiedades/${p.id}`);
+          if (fallidas?.length) toast.error(`Propiedad creada, pero fallaron ${fallidas.length} fotos`);
+          else if (p?.id) navigate(`/propiedades/${p.id}`);
         }}
       />
 

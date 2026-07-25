@@ -48,6 +48,12 @@ export const propiedadesApi = {
   update: (id, data) => put(`/propiedades/${id}`, data),
   delete: (id) => del(`/propiedades/${id}`),
   generate: (data) => api.post('/propiedades/generate', data, { timeout: 120000 }).then(r => r.data),
+  generarImagen: (id, data) => api.post(`/propiedades/${id}/generar-imagen`, data, { timeout: 240000 }).then(r => r.data),
+};
+
+export const generadorApi = {
+  opciones: (n) => post('/generador/opciones', { n }),
+  crear: (opcion, imagenesBase) => api.post('/generador/crear', { opcion, imagenesBase }, { timeout: 360000 }).then(r => r.data),
 };
 
 export const matchesApi = {

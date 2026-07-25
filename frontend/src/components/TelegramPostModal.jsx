@@ -15,73 +15,96 @@ function fmtEUR(n) {
  * Genera el texto de publicación para Telegram a partir de los datos
  * de una propiedad. Sigue el formato del ejemplo del usuario.
  */
+const SEP = '━━━━━━━━━━━━━━━';
+const nf = new Intl.NumberFormat('es-ES');
+
 function generateTelegramText(p) {
+  const precio = p.precio || 0;
+  const alqMes = p.estimacion_alquiler
+    || (precio && p.rentabilidad_bruta ? Math.round((precio * p.rentabilidad_bruta) / 100 / 12 / 10) * 10 : 0);
+  const bruta = p.rentabilidad_bruta
+    ? String(p.rentabilidad_bruta).replace('.', ',')
+    : (precio && alqMes ? ((alqMes * 12 / precio) * 100).toFixed(1).replace('.', ',') : '—');
+
+  const subtitulo = (p.rentabilidad_bruta || 0) >= 13
+    ? 'Rentabilidad alta en una zona con fuerte demanda de alquiler'
+    : (p.rentabilidad_bruta || 0) >= 10
+      ? 'Buena rentabilidad en una zona con demanda de alquiler constante'
+      : 'Activo estable en zona consolidada';
+
+  const reforma = p.m2 ? Math.max(1500, Math.round((p.m2 * 45) / 500) * 500) : 3500;
+  const ibiAnual = precio ? Math.max(150, Math.round((precio * 0.004) / 10) * 10) : 300;
+  const comunidad = 45;
+  const gastoMes = Math.round(ibiAnual / 12 + comunidad);
+
+  const aportacion = Math.round((precio * 0.2) / 100) * 100;
+  const hipoteca = precio - Math.round(precio * 0.2);
+  const r = 0.025 / 12;
+  const cuota = hipoteca ? Math.round((hipoteca * r) / (1 - Math.pow(1 + r, -360)) / 5) * 5 : 0;
+
+  const honorarios = Math.max(3000, Math.round((precio * 0.046) / 100) * 100);
+  const ref = String((parseInt(p.id?.slice(0, 6) || '0', 16) % 999) + 1).padStart(3, '0');
   const ubicacion = [p.poblacion, p.provincia].filter(Boolean).join(', ');
   const tipo = (p.tipo || 'piso').charAt(0).toUpperCase() + (p.tipo || 'piso').slice(1);
 
-  const lines = [];
+  const caract = [
+    p.m2 && `${p.m2} m²`,
+    p.habitaciones && `${p.habitaciones} habitaciones`,
+    p.banos && `${p.banos} baño${p.banos > 1 ? 's' : ''}`,
+  ].filter(Boolean).join('\n');
 
-  // Cabecera
-  lines.push(`🔥 NUEVA OPORTUNIDAD DE INVERSIÓN`);
-  lines.push('');
-  lines.push(`📍 ${tipo} en ${ubicacion || 'ubicación por determinar'}`);
-  if (p.direccion) lines.push(`📌 ${p.direccion}`);
-  lines.push('');
+  return `${tipo} en ${ubicacion}
+${subtitulo}
+${SEP}
 
-  // Precio y rentabilidad
-  lines.push('━━━━━━━━━━━━━━━');
-  lines.push(`💸 Precio compra: ${fmtEUR(p.precio)}`);
-  if (p.rentabilidad_bruta) {
-    lines.push(`📈 Rentabilidad bruta: ${p.rentabilidad_bruta}%`);
-  }
-  if (p.rentabilidad_neta) {
-    lines.push(`📊 Rentabilidad neta: ${p.rentabilidad_neta}%`);
-  }
-  if (p.precio && p.m2) {
-    lines.push(`💰 Precio/m²: ${Math.round(p.precio / p.m2).toLocaleString('es-ES')} €`);
-  }
-  lines.push('');
+Precio compra: ${nf.format(precio)} €
 
-  // Características
-  const specs = [
-    p.m2 && `📏 ${p.m2} m²`,
-    p.habitaciones && `🛏 ${p.habitaciones} habitaciones`,
-    p.banos && `🛁 ${p.banos} baños`,
-    p.planta && `🏢 Planta ${p.planta}`,
-    p.anio_construccion && `📅 Año ${p.anio_construccion}`,
-  ].filter(Boolean);
+Ingresos estimados: ${nf.format(alqMes)} €/mes — ${nf.format(alqMes * 12)} €/año
 
-  if (specs.length > 0) {
-    lines.push('━━━━━━━━━━━━━━━');
-    lines.push('🏠 Características del activo');
-    specs.forEach((s) => lines.push(s));
-    lines.push('');
-  }
+Reforma estimada: ${nf.format(reforma)} € para pintar y arreglar pequeños detalles
 
-  // Puntos fuertes
-  lines.push('━━━━━━━━━━━━━━━');
-  lines.push('🎯 Puntos fuertes');
-  if (p.acepta_financiacion) lines.push('✔️ Acepta financiación');
-  lines.push('✔️ Inversión con potencial de revalorización');
-  lines.push('✔️ Zona con alta demanda');
-  lines.push('');
+Rentabilidad bruta: ${bruta}%
 
-  // Servicio
-  lines.push('━━━━━━━━━━━━━━━');
-  lines.push('🧠 Servicio opcional');
-  lines.push('✔️ Gestión integral del alquiler');
-  lines.push('✔️ Compra 100% a distancia');
-  lines.push('✔️ Acompañamiento completo');
-  lines.push('');
+${SEP}
 
-  // Contacto
-  lines.push('━━━━━━━━━━━━━━━');
-  lines.push('📩 Solicita información');
-  lines.push('✉️ Carles@pisalia.es');
-  lines.push('');
-  lines.push('⏳ Este tipo de activos vuelan');
+Características del activo
 
-  return lines.join('\n');
+${caract}
+
+Ubicado en ${ubicacion}
+
+${SEP}
+
+Costes fijos estimados
+IBI: ~${nf.format(ibiAnual)} €/año — ${Math.round(ibiAnual / 12)} €/mes
+Comunidad: ~${comunidad} €/mes
+Gasto total mensual estimado: ~${gastoMes} €
+${SEP}
+
+ESCENARIO HIPOTECARIO
+
+Financiación: 80%
+Aportación inicial: ~${nf.format(aportacion)} €
+Tipo interés: 2,5%
+Plazo: 30 años
+
+Hipoteca estimada: ${nf.format(hipoteca)} €
+
+Cuota estimada: ~${nf.format(cuota)} €/mes
+${SEP}
+
+Condiciones de compra
+
+Honorarios Pisalia: ${nf.format(honorarios)} € + IVA
+Escritura en 2–3 meses
+Reserva con contrato
+
+${SEP}
+
+Solicita información
+
+Mandar email a activos@pisalia.es
+👉 con asunto: PISALIA ${ref}`;
 }
 
 /**
