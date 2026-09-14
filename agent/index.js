@@ -235,6 +235,14 @@ async function ensureChromeRunning() {
     '--no-first-run',
     '--no-default-browser-check',
     '--disable-blink-features=AutomationControlled',
+    // En Windows colocamos la ventana fuera de la pantalla: sigue siendo un
+    // Chrome real y visible para la web (no minimizado, que la "oculta" y
+    // frena temporizadores), pero no molesta ni roba el foco a la persona.
+    // SCRAPER_CHROME_VISIBLE=1 en agent/.env la vuelve a mostrar (útil para
+    // resolver un captcha a mano).
+    ...(process.platform === 'win32' && process.env.SCRAPER_CHROME_VISIBLE !== '1'
+      ? ['--window-position=-32000,-32000', '--window-size=1280,900']
+      : []),
     'https://www.idealista.com',
   ];
 
@@ -267,9 +275,17 @@ async function ensureChromeRunning() {
 }
 
 // ─── Ejecutar tarea de scraping ───────────────────────────────────────────────
+// Parada de emergencia local: si existe el fichero agent/STOP, el scraper
+// aborta en el siguiente anuncio. Lo crea stop-scraping.bat / .sh desde el
+// propio ordenador, sin pasar por el CRM.
+const STOP_FILE = path.join(__dirname, 'STOP');
+const stopFileExists = () => { try { return fs.existsSync(STOP_FILE); } catch { return false; } };
+const clearStopFile = () => { try { fs.unlinkSync(STOP_FILE); } catch {} };
+
 async function handleScrapeTask(tarea) {
   const payload = tarea.payload || {};
   console.log('[Task] Iniciando scraping para campaña:', payload.campana_id);
+  clearStopFile(); // un STOP antiguo no debe abortar la tarea nueva
 
   // Asegurar que Chrome está corriendo antes de lanzar el scraper
   await ensureChromeRunning();
@@ -304,7 +320,15 @@ async function handleScrapeTask(tarea) {
     };
 
     // Callback que el scraper llama en checkpoints para saber si debe parar
-    const shouldAbort = () => cancelledByUser;
+    const shouldAbort = () => {
+      if (cancelledByUser) return true;
+      if (stopFileExists()) {
+        console.log('[Task] Fichero STOP detectado — parada de emergencia local.');
+        cancelledByUser = true;
+        return true;
+      }
+      return false;
+    };
 
     // Refrescos de precio de anuncios ya conocidos: van en lote y no cuentan
     // como leads nuevos. El backend los distingue por el flag `refresco`.

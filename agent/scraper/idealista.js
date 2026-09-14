@@ -673,6 +673,12 @@ async function scrapeIdealista(params, onLead, shouldAbort, onRefrescos) {
   // Anuncios que el CRM ya tiene: nos saltamos su ficha de detalle
   const knownUrls = new Set(params.urls_conocidas || []);
 
+  // Una única pestaña para las fichas de detalle, reutilizada en todo el
+  // scraping. Antes se abría y cerraba una pestaña por anuncio, y cada
+  // pestaña nueva traía la ventana de Chrome al frente: la persona no podía
+  // usar el ordenador mientras tanto.
+  let detailPage = null;
+
   // Refrescos de precio pendientes de enviar (se vacían por lotes)
   let refrescosPendientes = [];
   let saltados = 0;
@@ -946,9 +952,8 @@ async function scrapeIdealista(params, onLead, shouldAbort, onRefrescos) {
         let nombre_vendedor = ld.nombre_vendedor;
         let es_particular = ld.es_particular;
 
-        let detailPage = null;
         try {
-          detailPage = await browser.newPage();
+          if (!detailPage || detailPage.isClosed()) detailPage = await browser.newPage();
           await detailPage.goto(ld.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
           await sleep(1000, 2000);
           await detectAndSolveCaptcha(detailPage);
@@ -972,10 +977,9 @@ async function scrapeIdealista(params, onLead, shouldAbort, onRefrescos) {
           }
         } catch (err) {
           console.warn(`[Scraper] Error extrayendo detalles de ${ld.url}:`, err.message);
-        } finally {
-          if (detailPage) {
-            try { await detailPage.close(); } catch {}
-          }
+          // Si la pestaña quedó en mal estado, la descartamos y se recreará
+          try { if (detailPage && !detailPage.isClosed()) await detailPage.close(); } catch {}
+          detailPage = null;
         }
 
         if (telefono) {
@@ -1013,6 +1017,7 @@ async function scrapeIdealista(params, onLead, shouldAbort, onRefrescos) {
     // Enviar los refrescos de precio que queden pendientes, incluso si el
     // scraping se abortó a media: son datos ya obtenidos y no cuestan nada.
     try { await flushRefrescos(true); } catch {}
+    try { if (detailPage && !detailPage.isClosed()) await detailPage.close(); } catch {}
 
     if (ownBrowser) {
       await browser.close();
