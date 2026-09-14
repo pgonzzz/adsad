@@ -219,4 +219,26 @@ Write-Host ""
 Write-Host "  Para desinstalar mas adelante:"
 Write-Host "    $AgentDir\uninstall-windows.bat"
 Write-Host ""
+
+# ── Atajo de teclado para parar el scraping: Ctrl+Alt+P ────────────────
+# Acceso directo en el Escritorio a stop-scraping.bat con tecla rapida.
+# Windows solo respeta la tecla rapida de accesos directos del Escritorio
+# o del Menu Inicio, por eso va ahi.
+try {
+    $Desktop = [Environment]::GetFolderPath("Desktop")
+    $Lnk = Join-Path $Desktop "Parar scraping Pisalia.lnk"
+    $Shell = New-Object -ComObject WScript.Shell
+    $Sc = $Shell.CreateShortcut($Lnk)
+    $Sc.TargetPath = Join-Path $AgentDir "stop-scraping.bat"
+    $Sc.WorkingDirectory = $AgentDir
+    $Sc.Hotkey = "CTRL+ALT+P"
+    $Sc.WindowStyle = 7
+    $Sc.Description = "Para el scraping en curso (Ctrl+Alt+P)"
+    $Sc.Save()
+    Write-Host "  Atajo de teclado para PARAR el scraping: Ctrl+Alt+P" -ForegroundColor Green
+    Write-Host "  (acceso directo 'Parar scraping Pisalia' en el Escritorio)"
+    Write-Host ""
+} catch {
+    Write-Host "  [AVISO] No se pudo crear el atajo Ctrl+Alt+P: $_" -ForegroundColor Yellow
+}
 Read-Host "Pulsa Enter para cerrar esta ventana"
