@@ -13,6 +13,9 @@ router.get('/', async (req, res) => {
   if (req.query.tipo) {
     query = query.eq('tipo', req.query.tipo);
   }
+  if (req.query.estado) {
+    query = query.eq('estado', req.query.estado);
+  }
 
   const { data, error } = await query;
   if (error) return res.status(500).json({ error: error.message });

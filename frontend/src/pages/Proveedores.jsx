@@ -4,12 +4,13 @@ import Modal from '../components/Modal';
 import Badge from '../components/Badge';
 import ContratosSection from '../components/ContratosSection';
 
-const empty = { tipo: 'inmobiliaria', nombre: '', email: '', telefono: '', empresa: '', notas: '' };
+const empty = { tipo: 'inmobiliaria', estado: 'potencial', nombre: '', email: '', telefono: '', empresa: '', notas: '' };
 
 export default function Proveedores() {
   const [proveedores, setProveedores] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filtroTipo, setFiltroTipo] = useState('');
+  const [filtroEstado, setFiltroEstado] = useState('');
   const [search, setSearch] = useState('');
   const [modal, setModal] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -17,17 +18,20 @@ export default function Proveedores() {
 
   const load = () => {
     setLoading(true);
-    proveedoresApi.getAll(filtroTipo ? { tipo: filtroTipo } : {})
+    proveedoresApi.getAll({
+      ...(filtroTipo ? { tipo: filtroTipo } : {}),
+      ...(filtroEstado ? { estado: filtroEstado } : {}),
+    })
       .then(setProveedores)
       .finally(() => setLoading(false));
   };
 
-  useEffect(load, [filtroTipo]);
+  useEffect(load, [filtroTipo, filtroEstado]);
 
   const openCreate = () => { setEditing(null); setForm(empty); setModal(true); };
   const openEdit = (p) => {
     setEditing(p);
-    setForm({ tipo: p.tipo, nombre: p.nombre, email: p.email || '', telefono: p.telefono || '', empresa: p.empresa || '', notas: p.notas || '' });
+    setForm({ tipo: p.tipo, estado: p.estado || 'potencial', nombre: p.nombre, email: p.email || '', telefono: p.telefono || '', empresa: p.empresa || '', notas: p.notas || '' });
     setModal(true);
   };
 
@@ -74,12 +78,19 @@ export default function Proveedores() {
             <option value="inmobiliaria">Inmobiliaria</option>
             <option value="propietario">Propietario</option>
           </select>
+          <select value={filtroEstado} onChange={e => setFiltroEstado(e.target.value)}
+            className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="">Todos los estados</option>
+            <option value="potencial">Potenciales</option>
+            <option value="activo">Activos</option>
+          </select>
         </div>
         <div className="overflow-x-auto">
         <table className="w-full text-sm min-w-[720px]">
           <thead>
             <tr className="border-b bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
               <th className="px-4 py-3">Tipo</th>
+              <th className="px-4 py-3">Estado</th>
               <th className="px-4 py-3">Nombre</th>
               <th className="px-4 py-3">Empresa</th>
               <th className="px-4 py-3">Email</th>
@@ -90,12 +101,13 @@ export default function Proveedores() {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={7} className="text-center py-10 text-gray-400">Cargando...</td></tr>
+              <tr><td colSpan={8} className="text-center py-10 text-gray-400">Cargando...</td></tr>
             ) : filtered.length === 0 ? (
-              <tr><td colSpan={7} className="text-center py-10 text-gray-400">No hay proveedores</td></tr>
+              <tr><td colSpan={8} className="text-center py-10 text-gray-400">No hay proveedores</td></tr>
             ) : filtered.map(p => (
               <tr key={p.id} className="border-b last:border-0 hover:bg-gray-50">
                 <td className="px-4 py-3"><Badge value={p.tipo} /></td>
+                <td className="px-4 py-3"><Badge value={p.estado || 'potencial'} /></td>
                 <td className="px-4 py-3 font-medium text-gray-900">{p.nombre}</td>
                 <td className="px-4 py-3 text-gray-600">{p.empresa || '—'}</td>
                 <td className="px-4 py-3 text-gray-600">{p.email || '—'}</td>
@@ -120,6 +132,14 @@ export default function Proveedores() {
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
               <option value="inmobiliaria">Inmobiliaria</option>
               <option value="propietario">Propietario</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Estado *</label>
+            <select required value={form.estado} onChange={set('estado')}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="potencial">Potencial</option>
+              <option value="activo">Activo</option>
             </select>
           </div>
           <div>

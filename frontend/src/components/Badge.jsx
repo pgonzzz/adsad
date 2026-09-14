@@ -20,6 +20,8 @@ const styles = {
   // Proveedores
   inmobiliaria: 'bg-indigo-100 text-indigo-800',
   propietario: 'bg-teal-100 text-teal-800',
+  potencial: 'bg-amber-100 text-amber-800',
+  activo: 'bg-green-100 text-green-800',
 };
 
 const labels = {
@@ -38,6 +40,8 @@ const labels = {
   firmada: 'Firmada',
   caida: 'Caída',
   inmobiliaria: 'Inmobiliaria',
+  potencial: 'Potencial',
+  activo: 'Activo',
   propietario: 'Propietario',
 };
 
