@@ -3,6 +3,7 @@ import { operacionesApi } from '../api';
 import Badge from '../components/Badge';
 import Modal from '../components/Modal';
 import ConfirmDialog from '../components/ConfirmDialog';
+import { useBulkSelect, BulkBar, SelectAllCheckbox, RowCheckbox } from '../components/BulkSelect';
 import { useToast } from '../components/Toast';
 import LoadingSpinner from '../components/LoadingSpinner';
 
@@ -71,6 +72,26 @@ export default function Operaciones() {
         setConfirm(null);
         toast.success('Operación eliminada');
         load();
+      },
+    });
+  };
+
+  const bulk = useBulkSelect(ops.map(op => op.id));
+
+  const handleBulkDelete = () => {
+    const ids = [...bulk.selected];
+    if (!ids.length) return;
+    setConfirm({
+      title: `Eliminar ${ids.length} ${ids.length === 1 ? 'operación' : 'operaciones'}`,
+      message: `Vas a eliminar ${ids.length} ${ids.length === 1 ? 'operación' : 'operaciones'}. Esta acción no se puede deshacer.`,
+      onConfirm: async () => {
+        const results = await Promise.allSettled(ids.map(id => operacionesApi.delete(id)));
+        const fallos = results.filter(r => r.status === 'rejected').length;
+        setConfirm(null);
+        bulk.clear();
+        load();
+        if (fallos) toast.error(`${fallos} no se pudieron eliminar`);
+        toast.success(`${ids.length - fallos} operaciones eliminadas`);
       },
     });
   };
@@ -146,9 +167,11 @@ export default function Operaciones() {
 
             {/* Desktop table view */}
             <div className="hidden md:block overflow-x-auto">
+              <BulkBar count={bulk.count} onDelete={handleBulkDelete} onClear={bulk.clear} singular="operación" plural="operaciones" />
               <table className="w-full text-sm min-w-[800px]">
                 <thead>
                   <tr className="border-b bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
+                    <th className="px-4 py-3 w-8"><SelectAllCheckbox bulk={bulk} /></th>
                     <th className="px-4 py-3">Inversor</th>
                     <th className="px-4 py-3">Propiedad</th>
                     <th className="px-4 py-3">Estado</th>
@@ -163,7 +186,8 @@ export default function Operaciones() {
                     const inv = op.matches?.peticiones?.inversores;
                     const prop = op.matches?.propiedades;
                     return (
-                      <tr key={op.id} className="border-b last:border-0 hover:bg-gray-50">
+                      <tr key={op.id} className={`border-b last:border-0 ${bulk.isSelected(op.id) ? 'bg-blue-50' : 'hover:bg-gray-50'}`}>
+                        <td className="px-4 py-3" onClick={e => e.stopPropagation()}><RowCheckbox bulk={bulk} id={op.id} /></td>
                         <td className="px-4 py-3 font-medium text-gray-900">{inv?.nombre || '—'}</td>
                         <td className="px-4 py-3 text-gray-700">
                           {prop ? `${prop.tipo} · ${prop.zona || '—'}` : '—'}

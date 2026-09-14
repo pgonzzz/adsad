@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { inversoresApi } from '../api';
 import Modal from '../components/Modal';
 import ConfirmDialog from '../components/ConfirmDialog';
+import { useBulkSelect, BulkBar, SelectAllCheckbox, RowCheckbox } from '../components/BulkSelect';
 import { useToast } from '../components/Toast';
 import LoadingSpinner from '../components/LoadingSpinner';
 
@@ -100,6 +101,25 @@ export default function Inversores() {
     const matchPipeline = filterPipeline ? i.pipeline === filterPipeline : true;
     return matchSearch && matchPipeline;
   });
+  const bulk = useBulkSelect(filtered.map(i => i.id));
+
+  const handleBulkDelete = () => {
+    const ids = [...bulk.selected];
+    if (!ids.length) return;
+    setConfirm({
+      title: `Eliminar ${ids.length} ${ids.length === 1 ? 'inversor' : 'inversores'}`,
+      message: `Vas a eliminar ${ids.length} ${ids.length === 1 ? 'inversor' : 'inversores'}. Esta acción no se puede deshacer.`,
+      onConfirm: async () => {
+        const results = await Promise.allSettled(ids.map(id => inversoresApi.delete(id)));
+        const fallos = results.filter(r => r.status === 'rejected').length;
+        setConfirm(null);
+        bulk.clear();
+        load();
+        if (fallos) toast.error(`${fallos} no se pudieron eliminar`);
+        toast.success(`${ids.length - fallos} inversores eliminados`);
+      },
+    });
+  };
 
   return (
     <div>
@@ -159,9 +179,11 @@ export default function Inversores() {
 
         {/* Desktop table */}
         <div className="hidden md:block overflow-x-auto">
+        <BulkBar count={bulk.count} onDelete={handleBulkDelete} onClear={bulk.clear} singular="inversor" plural="inversores" />
         <table className="w-full text-sm min-w-[720px]">
           <thead>
             <tr className="border-b bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
+              <th className="px-4 py-3 w-8"><SelectAllCheckbox bulk={bulk} /></th>
               <th className="px-4 py-3">Nombre</th>
               <th className="px-4 py-3">Email</th>
               <th className="px-4 py-3">Teléfono</th>
@@ -173,11 +195,12 @@ export default function Inversores() {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={7}><LoadingSpinner /></td></tr>
+              <tr><td colSpan={8}><LoadingSpinner /></td></tr>
             ) : filtered.length === 0 ? (
-              <tr><td colSpan={7} className="text-center py-10 text-gray-400">No hay inversores</td></tr>
+              <tr><td colSpan={8} className="text-center py-10 text-gray-400">No hay inversores</td></tr>
             ) : filtered.map(inv => (
-              <tr key={inv.id} className="border-b last:border-0 hover:bg-gray-50">
+              <tr key={inv.id} className={`border-b last:border-0 ${bulk.isSelected(inv.id) ? 'bg-blue-50' : 'hover:bg-gray-50'}`}>
+                <td className="px-4 py-3" onClick={e => e.stopPropagation()}><RowCheckbox bulk={bulk} id={inv.id} /></td>
                 <td className="px-4 py-3 font-medium">
                   <Link to={`/inversores/${inv.id}`} className="text-blue-600 hover:underline">{fullName(inv)}</Link>
                   {inv.empresa && <div className="text-xs text-gray-400">{inv.empresa}</div>}

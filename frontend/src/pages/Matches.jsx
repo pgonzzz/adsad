@@ -4,6 +4,7 @@ import { matchesApi, operacionesApi } from '../api';
 import Badge from '../components/Badge';
 import Modal from '../components/Modal';
 import ConfirmDialog from '../components/ConfirmDialog';
+import { useBulkSelect, BulkBar, SelectAllCheckbox, RowCheckbox } from '../components/BulkSelect';
 import { useToast } from '../components/Toast';
 import LoadingSpinner from '../components/LoadingSpinner';
 
@@ -55,6 +56,26 @@ export default function Matches() {
   };
 
   useEffect(load, [filtroEstado]);
+
+  const bulk = useBulkSelect(matches.map(m => m.id));
+
+  const handleBulkDelete = () => {
+    const ids = [...bulk.selected];
+    if (!ids.length) return;
+    setConfirm({
+      title: `Eliminar ${ids.length} ${ids.length === 1 ? 'match' : 'matches'}`,
+      message: `Vas a eliminar ${ids.length} ${ids.length === 1 ? 'match' : 'matches'}. Esta acción no se puede deshacer.`,
+      onConfirm: async () => {
+        const results = await Promise.allSettled(ids.map(id => matchesApi.delete(id)));
+        const fallos = results.filter(r => r.status === 'rejected').length;
+        setConfirm(null);
+        bulk.clear();
+        load();
+        if (fallos) toast.error(`${fallos} no se pudieron eliminar`);
+        toast.success(`${ids.length - fallos} matches eliminados`);
+      },
+    });
+  };
 
   const generar = async () => {
     setGenerando(true);
@@ -180,9 +201,11 @@ export default function Matches() {
 
             {/* Desktop table view */}
             <div className="hidden md:block overflow-x-auto">
+              <BulkBar count={bulk.count} onDelete={handleBulkDelete} onClear={bulk.clear} singular="match" plural="matches" />
               <table className="w-full text-sm min-w-[800px]">
                 <thead>
                   <tr className="border-b bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
+                    <th className="px-4 py-3 w-8"><SelectAllCheckbox bulk={bulk} /></th>
                     <th className="px-4 py-3">Score</th>
                     <th className="px-4 py-3">Inversor</th>
                     <th className="px-4 py-3">Busca</th>
@@ -198,7 +221,8 @@ export default function Matches() {
                     const pet = m.peticiones;
                     const prop = m.propiedades;
                     return (
-                      <tr key={m.id} className="border-b last:border-0 hover:bg-gray-50">
+                      <tr key={m.id} className={`border-b last:border-0 ${bulk.isSelected(m.id) ? 'bg-blue-50' : 'hover:bg-gray-50'}`}>
+                        <td className="px-4 py-3" onClick={e => e.stopPropagation()}><RowCheckbox bulk={bulk} id={m.id} /></td>
                         <td className="px-4 py-3"><ScoreBar score={m.score} /></td>
                         <td className="px-4 py-3 font-medium text-gray-900">{inv?.nombre || '—'}</td>
                         <td className="px-4 py-3 text-gray-600">

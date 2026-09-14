@@ -5,6 +5,7 @@ import TelegramPostModal from '../components/TelegramPostModal';
 import Modal from '../components/Modal';
 import Badge from '../components/Badge';
 import ConfirmDialog from '../components/ConfirmDialog';
+import { useBulkSelect, BulkBar, SelectAllCheckbox, RowCheckbox } from '../components/BulkSelect';
 import { useToast } from '../components/Toast';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { supabase } from '../lib/supabase';
@@ -234,6 +235,25 @@ export default function Propiedades() {
     if (fFinanciacion === 'no' && p.acepta_financiacion) return false;
     return true;
   });
+  const bulk = useBulkSelect(filtered.map(p => p.id));
+
+  const handleBulkDelete = () => {
+    const ids = [...bulk.selected];
+    if (!ids.length) return;
+    setConfirm({
+      title: `Eliminar ${ids.length} ${ids.length === 1 ? 'propiedad' : 'propiedades'}`,
+      message: `Vas a eliminar ${ids.length} ${ids.length === 1 ? 'propiedad' : 'propiedades'}. Esta acción no se puede deshacer.`,
+      onConfirm: async () => {
+        const results = await Promise.allSettled(ids.map(id => propiedadesApi.delete(id)));
+        const fallos = results.filter(r => r.status === 'rejected').length;
+        setConfirm(null);
+        bulk.clear();
+        loadPropiedades();
+        if (fallos) toast.error(`${fallos} no se pudieron eliminar`);
+        toast.success(`${ids.length - fallos} propiedades eliminadas`);
+      },
+    });
+  };
 
   return (
     <div>
@@ -399,9 +419,11 @@ export default function Propiedades() {
 
         {/* Desktop table view */}
         <div className="hidden md:block overflow-x-auto">
+          <BulkBar count={bulk.count} onDelete={handleBulkDelete} onClear={bulk.clear} singular="propiedad" plural="propiedades" />
           <table className="w-full text-sm min-w-[900px]">
             <thead>
               <tr className="border-b bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
+                <th className="px-4 py-3 w-8"><SelectAllCheckbox bulk={bulk} /></th>
                 <th className="px-4 py-3">Fotos</th>
                 <th className="px-4 py-3">Tipo</th>
                 <th className="px-4 py-3">Estado</th>
@@ -416,11 +438,12 @@ export default function Propiedades() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={10} className="py-10"><LoadingSpinner /></td></tr>
+                <tr><td colSpan={11} className="py-10"><LoadingSpinner /></td></tr>
               ) : filtered.length === 0 ? (
-                <tr><td colSpan={10} className="text-center py-10 text-gray-400">No hay propiedades</td></tr>
+                <tr><td colSpan={11} className="text-center py-10 text-gray-400">No hay propiedades</td></tr>
               ) : filtered.map(p => (
-                <tr key={p.id} className="border-b last:border-0 hover:bg-gray-50 cursor-pointer" onClick={() => navigate(`/propiedades/${p.id}`)}>
+                <tr key={p.id} className={`border-b last:border-0 cursor-pointer ${bulk.isSelected(p.id) ? 'bg-blue-50' : 'hover:bg-gray-50'}`} onClick={() => navigate(`/propiedades/${p.id}`)}>
+                  <td className="px-4 py-3" onClick={e => e.stopPropagation()}><RowCheckbox bulk={bulk} id={p.id} /></td>
                   <td className="px-4 py-3">
                     <FotosFan fotos={p.fotos} onClick={url => setLightbox(url)} />
                   </td>

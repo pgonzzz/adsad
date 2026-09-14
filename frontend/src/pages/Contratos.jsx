@@ -3,6 +3,7 @@ import { FileText, Download, Trash2, Plus, FileSignature, Upload } from 'lucide-
 import { contratosApi, inversoresApi, proveedoresApi } from '../api';
 import Modal from '../components/Modal';
 import ConfirmDialog from '../components/ConfirmDialog';
+import { useBulkSelect, BulkBar, SelectAllCheckbox, RowCheckbox } from '../components/BulkSelect';
 import { useToast } from '../components/Toast';
 import LoadingSpinner from '../components/LoadingSpinner';
 
@@ -334,6 +335,26 @@ function FirmadosTab() {
 
   useEffect(load, [load]);
 
+  const bulk = useBulkSelect(firmados.map(f => f.id));
+
+  const handleBulkDelete = () => {
+    const ids = [...bulk.selected];
+    if (!ids.length) return;
+    setConfirmDlg({
+      title: `Eliminar ${ids.length} ${ids.length === 1 ? 'contrato' : 'contratos'}`,
+      message: `Vas a eliminar ${ids.length} ${ids.length === 1 ? 'contrato' : 'contratos'}. Esta acción no se puede deshacer.`,
+      onConfirm: async () => {
+        const results = await Promise.allSettled(ids.map(id => contratosApi.deleteFirmado(id)));
+        const fallos = results.filter(r => r.status === 'rejected').length;
+        setConfirmDlg(null);
+        bulk.clear();
+        load();
+        if (fallos) toast.error(`${fallos} no se pudieron eliminar`);
+        toast.success(`${ids.length - fallos} contratos eliminados`);
+      },
+    });
+  };
+
   const handleDelete = (f) => {
     setConfirmDlg({
       title: 'Eliminar contrato',
@@ -363,10 +384,12 @@ function FirmadosTab() {
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
+        <BulkBar count={bulk.count} onDelete={handleBulkDelete} onClear={bulk.clear} singular="contrato" plural="contratos" />
         <div className="overflow-x-auto">
           <table className="w-full text-sm min-w-[720px]">
             <thead>
               <tr className="border-b bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
+                <th className="px-4 py-3 w-8"><SelectAllCheckbox bulk={bulk} /></th>
                 <th className="px-4 py-3">Nombre</th>
                 <th className="px-4 py-3">Asociado a</th>
                 <th className="px-4 py-3">Plantilla</th>
@@ -376,11 +399,12 @@ function FirmadosTab() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={5} className="text-center py-10 text-gray-400">Cargando...</td></tr>
+                <tr><td colSpan={6} className="text-center py-10 text-gray-400">Cargando...</td></tr>
               ) : firmados.length === 0 ? (
-                <tr><td colSpan={5} className="text-center py-10 text-gray-400">Sin contratos firmados</td></tr>
+                <tr><td colSpan={6} className="text-center py-10 text-gray-400">Sin contratos firmados</td></tr>
               ) : firmados.map(f => (
-                <tr key={f.id} className="border-b last:border-0 hover:bg-gray-50">
+                <tr key={f.id} className={`border-b last:border-0 ${bulk.isSelected(f.id) ? 'bg-blue-50' : 'hover:bg-gray-50'}`}>
+                  <td className="px-4 py-3" onClick={e => e.stopPropagation()}><RowCheckbox bulk={bulk} id={f.id} /></td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
                       <FileSignature size={14} className="text-gray-400 shrink-0" />

@@ -3,6 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { captacionApi } from '../api';
 import Modal from '../components/Modal';
 import Badge from '../components/Badge';
+import ConfirmDialog from '../components/ConfirmDialog';
+import { useBulkSelect, BulkBar, SelectAllCheckbox, RowCheckbox } from '../components/BulkSelect';
 import Combobox, { ComboboxMunicipios } from '../components/Combobox';
 import { PROVINCIAS } from '../data/municipios';
 import {
@@ -1368,17 +1370,25 @@ function LeadsTable({ leads, showCampana = false, onEditLead, onDeleteLead, onRe
   };
   const clearSelection = () => setSelectedIds(new Set());
 
-  const handleBulkDelete = async () => {
-    if (!confirm(`¿Eliminar ${selectedIds.size} leads seleccionados? Esta acción no se puede deshacer.`)) return;
-    setBulkLoading(true);
-    try {
-      await Promise.all([...selectedIds].map(id => captacionApi.deleteLead(id)));
-      clearSelection();
-      if (onRefresh) onRefresh();
-    } catch (err) {
-      alert('Error eliminando: ' + err.message);
-    }
-    setBulkLoading(false);
+  const [confirmDlg, setConfirmDlg] = useState(null);
+  const handleBulkDelete = () => {
+    const n = selectedIds.size;
+    setConfirmDlg({
+      title: `Eliminar ${n} lead${n === 1 ? '' : 's'}`,
+      message: `Vas a eliminar ${n} lead${n === 1 ? '' : 's'}. Esta acción no se puede deshacer.`,
+      onConfirm: async () => {
+        setConfirmDlg(null);
+        setBulkLoading(true);
+        try {
+          await Promise.all([...selectedIds].map(id => captacionApi.deleteLead(id)));
+          clearSelection();
+          if (onRefresh) onRefresh();
+        } catch (err) {
+          alert('Error eliminando: ' + err.message);
+        }
+        setBulkLoading(false);
+      },
+    });
   };
 
   const handleBulkSetEstado = async (nuevoEstado) => {
@@ -1795,6 +1805,14 @@ function LeadsTable({ leads, showCampana = false, onEditLead, onDeleteLead, onRe
       <EnviosHistoryModal
         lead={enviosModal}
         onClose={() => setEnviosModal(null)}
+      />
+
+      <ConfirmDialog
+        open={!!confirmDlg}
+        title={confirmDlg?.title}
+        message={confirmDlg?.message}
+        onConfirm={confirmDlg?.onConfirm}
+        onCancel={() => setConfirmDlg(null)}
       />
     </div>
   );
@@ -2393,12 +2411,36 @@ export default function Captacion() {
     loadCampanas();
   };
 
-  const handleDelete = async (c, e) => {
+  const [confirmDlg, setConfirmDlg] = useState(null);
+  const handleDelete = (c, e) => {
     e.stopPropagation();
-    if (!confirm(`¿Eliminar campaña "${c.nombre}" y todos sus leads?`)) return;
-    await captacionApi.deleteCampana(c.id);
-    loadCampanas();
-    loadAllLeads();
+    setConfirmDlg({
+      title: 'Eliminar campaña',
+      message: `¿Eliminar la campaña "${c.nombre}" y todos sus leads? Esta acción no se puede deshacer.`,
+      onConfirm: async () => {
+        setConfirmDlg(null);
+        await captacionApi.deleteCampana(c.id);
+        loadCampanas();
+        loadAllLeads();
+      },
+    });
+  };
+
+  const bulk = useBulkSelect(campanas.map(c => c.id));
+  const handleBulkDelete = () => {
+    const ids = [...bulk.selected];
+    if (!ids.length) return;
+    setConfirmDlg({
+      title: `Eliminar ${ids.length} campaña${ids.length === 1 ? '' : 's'}`,
+      message: `Vas a eliminar ${ids.length} campaña${ids.length === 1 ? '' : 's'} con todos sus leads. Esta acción no se puede deshacer.`,
+      onConfirm: async () => {
+        setConfirmDlg(null);
+        await Promise.allSettled(ids.map(id => captacionApi.deleteCampana(id)));
+        bulk.clear();
+        loadCampanas();
+        loadAllLeads();
+      },
+    });
   };
 
   const handleEditLead = (lead, callback) => {
@@ -2527,9 +2569,11 @@ export default function Captacion() {
           </div>
         ) : (
           <div className="bg-white border border-gray-200 rounded-xl overflow-x-auto">
+            <BulkBar count={bulk.count} onDelete={handleBulkDelete} onClear={bulk.clear} singular="campaña" plural="campañas" />
             <table className="w-full text-sm min-w-[720px]">
               <thead>
                 <tr className="text-left text-xs text-gray-500 uppercase tracking-wide border-b border-gray-200 bg-gray-50">
+                  <th className="px-4 py-3 w-8"><SelectAllCheckbox bulk={bulk} /></th>
                   <th className="px-4 py-3 font-medium">Nombre</th>
                   <th className="px-4 py-3 font-medium">Portal</th>
                   <th className="px-4 py-3 font-medium">Ubicación</th>
@@ -2544,9 +2588,10 @@ export default function Captacion() {
                 {campanas.map(c => (
                   <tr
                     key={c.id}
-                    className="border-b border-gray-100 hover:bg-blue-50 cursor-pointer transition-colors"
+                    className={`border-b border-gray-100 cursor-pointer transition-colors ${bulk.isSelected(c.id) ? 'bg-blue-50' : 'hover:bg-blue-50'}`}
                     onClick={() => navigate(`/captacion/${c.id}`)}
                   >
+                    <td className="px-4 py-3" onClick={e => e.stopPropagation()}><RowCheckbox bulk={bulk} id={c.id} /></td>
                     <td className="px-4 py-3 font-medium text-gray-900">{c.nombre}</td>
                     <td className="px-4 py-3 capitalize text-gray-600">{c.portal}</td>
                     <td className="px-4 py-3 text-gray-600">
@@ -2650,6 +2695,14 @@ export default function Captacion() {
       <PlantillasModal
         open={plantillasOpen}
         onClose={() => setPlantillasOpen(false)}
+      />
+
+      <ConfirmDialog
+        open={!!confirmDlg}
+        title={confirmDlg?.title}
+        message={confirmDlg?.message}
+        onConfirm={confirmDlg?.onConfirm}
+        onCancel={() => setConfirmDlg(null)}
       />
     </div>
   );

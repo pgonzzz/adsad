@@ -6,6 +6,7 @@ import Combobox, { ComboboxMunicipios } from '../components/Combobox';
 import { PROVINCIAS } from '../data/municipios';
 import { SlidersHorizontal, X, List, Columns } from 'lucide-react';
 import ConfirmDialog from '../components/ConfirmDialog';
+import { useBulkSelect, BulkBar, SelectAllCheckbox, RowCheckbox } from '../components/BulkSelect';
 import { useToast } from '../components/Toast';
 import LoadingSpinner from '../components/LoadingSpinner';
 
@@ -176,6 +177,25 @@ export default function Peticiones() {
     if (filters.estado && p.estado !== filters.estado) return false;
     return true;
   });
+  const bulk = useBulkSelect(filtered.map(p => p.id));
+
+  const handleBulkDelete = () => {
+    const ids = [...bulk.selected];
+    if (!ids.length) return;
+    setConfirm({
+      title: `Eliminar ${ids.length} ${ids.length === 1 ? 'petición' : 'peticiones'}`,
+      message: `Vas a eliminar ${ids.length} ${ids.length === 1 ? 'petición' : 'peticiones'}. Esta acción no se puede deshacer.`,
+      onConfirm: async () => {
+        const results = await Promise.allSettled(ids.map(id => peticionesApi.delete(id)));
+        const fallos = results.filter(r => r.status === 'rejected').length;
+        setConfirm(null);
+        bulk.clear();
+        load();
+        if (fallos) toast.error(`${fallos} no se pudieron eliminar`);
+        toast.success(`${ids.length - fallos} peticiones eliminadas`);
+      },
+    });
+  };
 
   // ── Drag & Drop ──
   const handleDragStart = (e, peticion) => {
@@ -373,9 +393,11 @@ export default function Peticiones() {
 
               {/* Desktop table view */}
               <div className="hidden md:block overflow-x-auto">
+                <BulkBar count={bulk.count} onDelete={handleBulkDelete} onClear={bulk.clear} singular="petición" plural="peticiones" />
                 <table className="w-full text-sm min-w-[900px]">
                   <thead>
                     <tr className="border-b bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wide">
+                      <th className="px-4 py-3 w-8"><SelectAllCheckbox bulk={bulk} /></th>
                       <th className="px-4 py-3">Inversor</th>
                       <th className="px-4 py-3">Pipeline</th>
                       <th className="px-4 py-3">Provincia</th>
@@ -391,7 +413,8 @@ export default function Peticiones() {
                     {filtered.map(p => {
                       const stage = PIPELINE.find(s => s.value === (p.inversores?.pipeline || 'en_busca'));
                       return (
-                        <tr key={p.id} className="border-b last:border-0 hover:bg-gray-50">
+                        <tr key={p.id} className={`border-b last:border-0 ${bulk.isSelected(p.id) ? 'bg-blue-50' : 'hover:bg-gray-50'}`}>
+                          <td className="px-4 py-3" onClick={e => e.stopPropagation()}><RowCheckbox bulk={bulk} id={p.id} /></td>
                           <td className="px-4 py-3 font-medium">
                             {p.inversores ? (
                               <Link to={`/inversores/${p.inversores.id}`} className="text-blue-600 hover:underline">
