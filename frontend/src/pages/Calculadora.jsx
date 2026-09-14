@@ -42,6 +42,7 @@ const emptyForm = {
   m2: '',
   itpPct: 10,
   gastosEscrituraPct: 2,
+  gastosEscrituraModo: 'pct', // 'pct' (% sobre precio) | 'eur' (importe fijo)
   agenciaCompraPct: 0,
 
   // ── Reforma ──
@@ -96,7 +97,7 @@ function Section({ title, icon: Icon, children }) {
   );
 }
 
-function Field({ label, value, onChange, type = 'number', suffix, placeholder, step, colSpan }) {
+function Field({ label, value, onChange, type = 'number', suffix, placeholder, step, colSpan, onSuffixClick, suffixTitle }) {
   return (
     <div className={colSpan === 2 ? 'sm:col-span-2' : ''}>
       <label className="block text-xs font-medium text-gray-600 mb-1">{label}</label>
@@ -109,7 +110,17 @@ function Field({ label, value, onChange, type = 'number', suffix, placeholder, s
           step={step}
           className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 pr-9"
         />
-        {suffix && (
+        {suffix && onSuffixClick ? (
+          // Sufijo clicable: alterna la unidad del campo (p.ej. % ↔ €)
+          <button
+            type="button"
+            onClick={onSuffixClick}
+            title={suffixTitle}
+            className="absolute right-1.5 top-1/2 -translate-y-1/2 px-1.5 py-0.5 rounded text-xs font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 border border-blue-200"
+          >
+            {suffix}
+          </button>
+        ) : suffix && (
           <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 pointer-events-none">
             {suffix}
           </span>
@@ -165,6 +176,23 @@ export default function Calculadora() {
     }));
   };
 
+  // Alterna el campo de escritura entre % y € convirtiendo el valor actual
+  // con el precio de compra, para no perder lo que ya estaba escrito.
+  const toggleGastosEscrituraModo = () => {
+    setForm((f) => {
+      const precio = num(f.precioCompra);
+      const v = num(f.gastosEscrituraPct);
+      const aEuros = f.gastosEscrituraModo !== 'eur';
+      let nuevoValor = f.gastosEscrituraPct;
+      if (precio > 0) {
+        nuevoValor = aEuros
+          ? String(Math.round(precio * v / 100))
+          : String(+((v / precio) * 100).toFixed(2));
+      }
+      return { ...f, gastosEscrituraModo: aEuros ? 'eur' : 'pct', gastosEscrituraPct: nuevoValor };
+    });
+  };
+
   // ─── Cálculos (memo) ───────────────────────────────────────────────────────
   const calc = useMemo(() => {
     const precioCompra = num(form.precioCompra);
@@ -172,7 +200,9 @@ export default function Calculadora() {
 
     // Gastos de compra
     const itp = precioCompra * num(form.itpPct) / 100;
-    const escritura = precioCompra * num(form.gastosEscrituraPct) / 100;
+    const escritura = form.gastosEscrituraModo === 'eur'
+      ? num(form.gastosEscrituraPct)
+      : precioCompra * num(form.gastosEscrituraPct) / 100;
     const agenciaCompra = precioCompra * num(form.agenciaCompraPct) / 100;
     const gastosCompra = itp + escritura + agenciaCompra;
 
@@ -418,8 +448,10 @@ export default function Calculadora() {
               label="Notaría + registro + gestoría + tasación"
               value={form.gastosEscrituraPct}
               onChange={set('gastosEscrituraPct')}
-              suffix="%"
-              step="0.1"
+              suffix={form.gastosEscrituraModo === 'eur' ? '€' : '%'}
+              suffixTitle={form.gastosEscrituraModo === 'eur' ? 'Cambiar a porcentaje sobre el precio' : 'Cambiar a importe fijo en euros'}
+              onSuffixClick={toggleGastosEscrituraModo}
+              step={form.gastosEscrituraModo === 'eur' ? '100' : '0.1'}
             />
             <Field
               label="Comisión agencia compra"
@@ -533,10 +565,10 @@ export default function Calculadora() {
                   placeholder="250"
                 />
                 <Field
-                  label="Reserva mantenimiento"
+                  label="Reserva para mantenimiento (% del alquiler bruto anual)"
                   value={form.mantenimientoPct}
                   onChange={set('mantenimientoPct')}
-                  suffix="% alq."
+                  suffix="%"
                   step="0.5"
                 />
                 <Field
@@ -679,7 +711,11 @@ export default function Calculadora() {
               <dl className="text-sm space-y-1.5">
                 <Row label="Precio de compra" value={fmtEUR(calc.precioCompra)} />
                 <Row label={`ITP (${form.itpPct || 0}%)`} value={fmtEUR(calc.itp)} sub />
-                <Row label={`Escritura (${form.gastosEscrituraPct || 0}%)`} value={fmtEUR(calc.escritura)} sub />
+                <Row
+                  label={form.gastosEscrituraModo === 'eur' ? 'Escritura (importe fijo)' : `Escritura (${form.gastosEscrituraPct || 0}%)`}
+                  value={fmtEUR(calc.escritura)}
+                  sub
+                />
                 {num(form.agenciaCompraPct) > 0 && (
                   <Row label={`Agencia compra (${form.agenciaCompraPct}%)`} value={fmtEUR(calc.agenciaCompra)} sub />
                 )}
@@ -715,7 +751,7 @@ export default function Calculadora() {
                   {num(form.comunidadMensual) > 0 && <Row label="Comunidad" value={fmtEUR(calc.comunidadAnual)} sub />}
                   {num(form.seguroHogarAnual) > 0 && <Row label="Seguro hogar" value={fmtEUR(calc.seguroHogar)} sub />}
                   {num(form.seguroImpagoAnual) > 0 && <Row label="Seguro impago" value={fmtEUR(calc.seguroImpago)} sub />}
-                  {calc.mantenimientoAnual > 0 && <Row label="Mantenimiento" value={fmtEUR(calc.mantenimientoAnual)} sub />}
+                  {calc.mantenimientoAnual > 0 && <Row label={`Reserva mantenimiento (${form.mantenimientoPct || 0}% del alquiler)`} value={fmtEUR(calc.mantenimientoAnual)} sub />}
                   {calc.gestionAnual > 0 && <Row label="Gestión" value={fmtEUR(calc.gestionAnual)} sub />}
                   <div className="border-t border-gray-100 my-2" />
                   <Row label="Total gastos" value={fmtEUR(calc.gastosAnuales)} bold />
