@@ -193,6 +193,7 @@ export const captacionApi = {
   getLeadById: (id) => get(`/captacion/leads/${id}`),
   updateLead: (id, data) => put(`/captacion/leads/${id}`, data),
   deleteLead: (id) => del(`/captacion/leads/${id}`),
+  crearPropiedadDesdeLead: (id) => post(`/captacion/leads/${id}/crear-propiedad`),
   getAgentStatus: () => get('/captacion/agent/status'),
   getMyAgentKey: () => get('/captacion/agent/my-key'),
   // Marca un flag en el backend para que el agente desvincule WhatsApp en

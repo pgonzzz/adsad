@@ -279,6 +279,18 @@ export default function PropiedadDetalle() {
                 {[propiedad.direccion, propiedad.poblacion, propiedad.provincia].filter(Boolean).join(', ')}
               </p>
             )}
+            {propiedad.origen && (
+              <p className="text-xs text-violet-700 bg-violet-50 border border-violet-200 rounded-lg px-3 py-1.5 mb-3 inline-flex flex-wrap items-center gap-1">
+                Captada desde la campaña
+                <Link to={`/captacion/${propiedad.origen.campana_id}`} className="font-medium underline">
+                  {propiedad.origen.campana || 'sin nombre'}
+                </Link>
+                {propiedad.origen.vendedor && <span>· vendedor: {propiedad.origen.vendedor}</span>}
+                {propiedad.origen.url_anuncio && (
+                  <a href={propiedad.origen.url_anuncio} target="_blank" rel="noopener noreferrer" className="underline">· ver anuncio</a>
+                )}
+              </p>
+            )}
             <div className="flex flex-wrap gap-6">
               <div>
                 <p className="text-xs text-gray-400 mb-0.5">Precio</p>

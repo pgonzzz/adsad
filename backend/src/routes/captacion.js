@@ -382,6 +382,98 @@ router.delete('/leads/:id', authMiddleware, async (req, res) => {
   res.status(204).send();
 });
 
+// ─── Lead → Propiedad ────────────────────────────────────────────────────────
+// Extrae m², habitaciones, baños, planta y año del JSON de características
+// que guarda el scraper (listas de frases tipo "89 m² construidos", "2 baños").
+function parseCaracteristicas(car) {
+  const frases = Object.values(car || {}).flat().map(String);
+  const num = (re) => {
+    for (const f of frases) { const m = f.match(re); if (m) return parseInt(m[1], 10); }
+    return null;
+  };
+  return {
+    m2: num(/(\d+)\s*m²\s*construidos/i) ?? num(/(\d+)\s*m²/i),
+    habitaciones: num(/(\d+)\s*habitaci/i),
+    banos: num(/(\d+)\s*baño/i),
+    planta: num(/planta\s*(\d+)/i),
+    anio_construccion: num(/construido en\s*(\d{4})/i),
+    ascensor: frases.some(f => /^con ascensor/i.test(f)) ? true : frases.some(f => /sin ascensor/i.test(f)) ? false : null,
+  };
+}
+
+// POST /captacion/leads/:id/crear-propiedad — crea una propiedad a partir del
+// lead (datos del anuncio + proveedor con los datos del vendedor), la enlaza
+// al lead de origen y marca el lead como convertido. Idempotente: si ya hay
+// una propiedad para ese lead, la devuelve.
+router.post('/leads/:id/crear-propiedad', authMiddleware, async (req, res) => {
+  const { data: lead, error } = await supabase
+    .from('captacion_leads')
+    .select('*, captacion_campanas(nombre)')
+    .eq('id', req.params.id)
+    .single();
+  if (error || !lead) return res.status(404).json({ error: 'Lead no encontrado' });
+
+  const { data: existente } = await supabase
+    .from('propiedades').select('id').eq('lead_id', lead.id).maybeSingle();
+  if (existente) return res.json({ propiedad_id: existente.id, ya_existia: true });
+
+  // Proveedor: reutilizar el enlazado, buscar por teléfono, o crearlo
+  let proveedorId = lead.proveedor_id || null;
+  if (!proveedorId && lead.telefono) {
+    const { data: porTel } = await supabase
+      .from('proveedores').select('id').eq('telefono', lead.telefono).maybeSingle();
+    proveedorId = porTel?.id || null;
+  }
+  if (!proveedorId && (lead.nombre_vendedor || lead.telefono)) {
+    const { data: nuevoProv, error: errProv } = await supabase
+      .from('proveedores')
+      .insert({
+        tipo: lead.es_particular ? 'propietario' : 'inmobiliaria',
+        estado: 'activo',
+        nombre: lead.nombre_vendedor || `Vendedor ${lead.telefono}`,
+        telefono: lead.telefono || null,
+        notas: `Creado desde el lead de captación (${lead.captacion_campanas?.nombre || 'campaña'})`,
+      })
+      .select('id').single();
+    if (errProv) return res.status(500).json({ error: errProv.message });
+    proveedorId = nuevoProv.id;
+  }
+
+  const car = parseCaracteristicas(lead.caracteristicas);
+  const descripcion = [
+    lead.titulo,
+    car.ascensor === false ? 'Sin ascensor.' : car.ascensor === true ? 'Con ascensor.' : null,
+    lead.url_anuncio ? `Anuncio original: ${lead.url_anuncio}` : null,
+  ].filter(Boolean).join(' ');
+
+  const { data: prop, error: errProp } = await supabase
+    .from('propiedades')
+    .insert({
+      tipo: lead.tipo || 'piso',
+      estado: 'disponible',
+      provincia: lead.provincia || null,
+      poblacion: lead.poblacion || null,
+      precio: lead.precio || null,
+      m2: car.m2, habitaciones: car.habitaciones, banos: car.banos,
+      planta: car.planta != null ? `${car.planta}ª` : null, // la columna es texto ('2ª'), como en el resto del CRM
+      anio_construccion: car.anio_construccion,
+      descripcion: descripcion || null,
+      proveedor_id: proveedorId,
+      lead_id: lead.id,
+      tags: ['captada'],
+      acepta_financiacion: false,
+      fotos: [],
+    })
+    .select('id').single();
+  if (errProp) return res.status(500).json({ error: errProp.message });
+
+  await supabase.from('captacion_leads')
+    .update({ estado: 'convertido', proveedor_id: proveedorId })
+    .eq('id', lead.id);
+
+  res.status(201).json({ propiedad_id: prop.id, proveedor_id: proveedorId });
+});
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // PLANTILLAS DE MENSAJES
 // ═══════════════════════════════════════════════════════════════════════════════

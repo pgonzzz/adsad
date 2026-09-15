@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { captacionApi } from '../api';
 import Modal from '../components/Modal';
 import Badge from '../components/Badge';
@@ -9,7 +9,7 @@ import Combobox, { ComboboxMunicipios } from '../components/Combobox';
 import { PROVINCIAS } from '../data/municipios';
 import {
   Plus, Search, Wifi, WifiOff, RefreshCw, ChevronLeft,
-  Play, Pause, Pencil, Trash2, MessageSquare, ExternalLink,
+  Play, Pause, Pencil, Trash2, MessageSquare, ExternalLink, Home,
   LayoutGrid, List, Smartphone, UserPlus, Settings, Copy, Check,
 } from 'lucide-react';
 import { proveedoresApi } from '../api';
@@ -1337,6 +1337,21 @@ function LeadsTable({ leads, showCampana = false, onEditLead, onDeleteLead, onRe
   const [filterEstadoLocal, setFilterEstadoLocal] = useState('');
   const filterEstado = filterEstadoProp !== undefined ? filterEstadoProp : filterEstadoLocal;
   const setFilterEstado = onFilterEstadoChange || setFilterEstadoLocal;
+  const navigate = useNavigate();
+  const [creandoProp, setCreandoProp] = useState(null); // id del lead en curso
+
+  // Crea la propiedad (y el proveedor si hace falta) desde el lead y abre su ficha
+  const handleCrearPropiedad = async (lead) => {
+    setCreandoProp(lead.id);
+    try {
+      const r = await captacionApi.crearPropiedadDesdeLead(lead.id);
+      if (onRefresh) onRefresh();
+      navigate(`/propiedades/${r.propiedad_id}`);
+    } catch (err) {
+      alert(err.response?.data?.error || 'No se pudo crear la propiedad');
+    }
+    setCreandoProp(null);
+  };
 
   const [filterTipoTel, setFilterTipoTel] = useState('');
   const [filterProvincia, setFilterProvincia] = useState('');
@@ -1752,6 +1767,14 @@ function LeadsTable({ leads, showCampana = false, onEditLead, onDeleteLead, onRe
                           <ExternalLink size={14} />
                         </a>
                       )}
+                      <button
+                        onClick={() => handleCrearPropiedad(lead)}
+                        disabled={creandoProp === lead.id}
+                        className="p-1 text-gray-400 hover:text-violet-600 rounded disabled:opacity-40"
+                        title="Crear propiedad a partir de este lead"
+                      >
+                        <Home size={14} />
+                      </button>
                       {lead.estado === 'respondido' && (
                         <button
                           onClick={() => setConvertirLead(lead)}

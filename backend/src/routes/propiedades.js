@@ -26,6 +26,24 @@ router.get('/:id', async (req, res) => {
     .single();
   if (error) return res.status(500).json({ error: error.message });
 
+  // Origen: lead de captación del que salió esta propiedad (si aplica)
+  if (propiedad.lead_id) {
+    const { data: lead } = await supabase
+      .from('captacion_leads')
+      .select('id, campana_id, url_anuncio, nombre_vendedor, captacion_campanas(nombre)')
+      .eq('id', propiedad.lead_id)
+      .maybeSingle();
+    if (lead) {
+      propiedad.origen = {
+        lead_id: lead.id,
+        campana_id: lead.campana_id,
+        campana: lead.captacion_campanas?.nombre || null,
+        url_anuncio: lead.url_anuncio,
+        vendedor: lead.nombre_vendedor,
+      };
+    }
+  }
+
   // Peticiones activas que encajan con esta propiedad
   const { data: todasPeticiones } = await supabase
     .from('peticiones')
