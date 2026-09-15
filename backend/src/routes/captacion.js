@@ -206,12 +206,13 @@ router.put('/campanas/:id', authMiddleware, async (req, res) => {
 });
 
 // DELETE /captacion/campanas/:id
+// Espacio de trabajo compartido: cualquier miembro del equipo puede borrar,
+// igual que en propiedades, inversores o leads. No hay roles todavía.
 router.delete('/campanas/:id', authMiddleware, async (req, res) => {
   const { error } = await supabase
     .from('captacion_campanas')
     .delete()
-    .eq('id', req.params.id)
-    .eq('user_id', req.user.id);
+    .eq('id', req.params.id);
   if (error) return res.status(500).json({ error: error.message });
   res.status(204).send();
 });
@@ -440,8 +441,7 @@ router.delete('/plantillas/:id', authMiddleware, async (req, res) => {
   const { error } = await supabase
     .from('captacion_plantillas')
     .delete()
-    .eq('id', req.params.id)
-    .eq('user_id', req.user.id);
+    .eq('id', req.params.id);
   if (error) return res.status(500).json({ error: error.message });
   res.status(204).send();
 });
