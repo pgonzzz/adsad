@@ -26,6 +26,23 @@ import supabase from '../db/supabase.js';
 const router = express.Router();
 
 const BUCKET = 'contratos';
+
+// Opciones de docxtemplater. La interfaz pide escribir {{nombre_campo}} en el
+// Word, así que los delimitadores tienen que ser dobles: con los de serie
+// ({ y }) cada {{campo}} fallaba con "Duplicate open tag" (Multi error).
+const DOCX_OPTS = {
+  paragraphLoop: true,
+  linebreaks: true,
+  delimiters: { start: '{{', end: '}}' },
+  nullGetter: () => '',
+};
+
+// Mensaje de error legible para el usuario a partir de un error de docxtemplater
+function docxErrorMessage(err, fallback) {
+  const details = err?.properties?.errors
+    ?.map(e => e.properties?.explanation).filter(Boolean).join('; ');
+  return details || err?.properties?.explanation || err?.message || fallback;
+}
 // Allowlist por defecto — los dueños del módulo. Si en algún momento hace
 // falta añadir a otro usuario sin tener que redeployar, basta con setear la
 // variable CONTRATOS_ALLOWED_EMAILS en Railway y sobrescribe esta lista.
@@ -87,34 +104,27 @@ function base64ToBuffer(b64) {
 
 // ─── Detección de campos en la plantilla ────────────────────────────────────
 //
-// Técnica: compilamos el .docx con docxtemplater y lo "renderizamos" con un
-// Proxy que captura cualquier clave a la que el motor acceda. Así obtenemos
-// la lista completa de placeholders sin tener que parsear XML a mano
-// (y sin romperse cuando Word parte el token {{campo}} entre varios runs).
+// Técnica: compilamos el .docx con docxtemplater (que ya reconstruye los
+// tokens aunque Word parta {{campo}} entre varios runs) y recorremos su árbol
+// compilado recogiendo los placeholders. El intento anterior con un Proxy en
+// render() no capturaba ningún campo.
 function detectFields(docxBuffer) {
   const zip = new PizZip(docxBuffer);
-  const doc = new Docxtemplater(zip, {
-    paragraphLoop: true,
-    linebreaks: true,
-    nullGetter: () => '',
-  });
-
   const fields = new Set();
-  const proxy = new Proxy({}, {
-    get(_target, key) {
-      if (typeof key === 'string' && !key.startsWith('__')) fields.add(key);
-      return '';
-    },
-    has() { return true; },
-  });
 
   try {
-    doc.render(proxy);
+    const doc = new Docxtemplater(zip, DOCX_OPTS);
+    const walk = (parts) => {
+      for (const p of parts || []) {
+        if (p.type === 'placeholder' && p.value) fields.add(p.value);
+        if (p.subparsed) walk(p.subparsed);
+      }
+    };
+    for (const file of Object.values(doc.compiled || {})) walk(file.postparsed);
   } catch (err) {
     // Si la plantilla tiene errores de sintaxis los reportamos — el usuario
     // los arregla en Word.
-    const details = err?.properties?.errors?.map(e => e.properties?.explanation).filter(Boolean).join('; ');
-    throw new Error(`La plantilla tiene errores: ${details || err.message}`);
+    throw new Error(`La plantilla tiene errores: ${docxErrorMessage(err, 'no se pudo leer el .docx')}`);
   }
 
   return [...fields];
@@ -278,11 +288,7 @@ router.post('/plantillas/:id/generate', contratosAuth, async (req, res) => {
 
   try {
     const zip = new PizZip(templateBuf);
-    const doc = new Docxtemplater(zip, {
-      paragraphLoop: true,
-      linebreaks: true,
-      nullGetter: () => '',
-    });
+    const doc = new Docxtemplater(zip, DOCX_OPTS);
     doc.render(valores);
     const generated = zip.generate({ type: 'nodebuffer' });
 
@@ -291,8 +297,7 @@ router.post('/plantillas/:id/generate', contratosAuth, async (req, res) => {
     res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
     res.send(generated);
   } catch (err) {
-    const details = err?.properties?.errors?.map(e => e.properties?.explanation).filter(Boolean).join('; ');
-    return res.status(400).json({ error: 'Error generando el contrato.', details: details || err.message });
+    return res.status(400).json({ error: 'Error generando el contrato.', details: docxErrorMessage(err, 'error desconocido') });
   }
 });
 
